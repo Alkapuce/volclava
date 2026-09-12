@@ -208,6 +208,7 @@ struct jobInfoReq {
     char   *jobName;
     char   *queue;
     char   *host;          
+    char   *outputFields;
 };
 
 struct jobInfoReply {
@@ -256,6 +257,7 @@ struct infoReq {
     int numNames;
     char **names;
     char  *resReq;
+    char  *outputFields;
 };
 
 

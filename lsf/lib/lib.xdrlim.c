@@ -82,11 +82,25 @@ xdr_decisionReq(XDR *xdrs, struct decisionReq *decisionReqPtr,
 {
     char *sp1 = decisionReqPtr->hostType;
     char *sp2 = decisionReqPtr->resReq;
+    int hasOutputFields = hdr
+                          && hdr->opCode == LIM_GET_HOSTINFO
+                          && hdr->version >= _VOLCLAVA_VERSION2_3_;
+    int i;
 
+    if (xdrs->x_op == XDR_FREE) {
+        if (decisionReqPtr->preferredHosts) {
+            for (i = 0; i < decisionReqPtr->numPrefs; i++)
+                FREEUP(decisionReqPtr->preferredHosts[i]);
+        }
+        FREEUP(decisionReqPtr->preferredHosts);
+        FREEUP(decisionReqPtr->outputFields);
+        return TRUE;
+    }
 
     if (xdrs->x_op == XDR_DECODE) {
         decisionReqPtr->resReq[0] = '\0';
         decisionReqPtr->hostType[0] = '\0';
+        decisionReqPtr->outputFields = NULL;
     }
 
     if (!(xdr_enum(xdrs, (int *) &decisionReqPtr->ofWhat) &&
@@ -111,6 +125,10 @@ xdr_decisionReq(XDR *xdrs, struct decisionReq *decisionReqPtr,
         if (xdrs->x_op == XDR_DECODE)
             FREEUP(decisionReqPtr->preferredHosts);
         return (FALSE);
+    }
+    if (hasOutputFields) {
+        if (!xdr_var_string(xdrs, &decisionReqPtr->outputFields))
+            return (FALSE);
     }
 
     return(TRUE);
