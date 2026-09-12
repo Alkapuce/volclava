@@ -30,6 +30,7 @@
 
 #include "../lib/lproto.h"
 #include "../intlib/intlibout.h"
+#include "../intlib/fmt_output.h"
 
 #include <math.h>
 
@@ -38,6 +39,7 @@
 
 static void usage(char *);
 static void print_long(struct hostInfo *hostInfo);
+static void print_o(struct hostInfo *hostInfo, int numHosts, char *fieldName);
 static char *stripSpaces(char *);
 
 
@@ -66,6 +68,26 @@ struct indexFmt fmt1[] = {
 {  NULL,  "%7s", "*%6.1f"  , " %6.1f",      1.0 }
 }, *fmt;
 
+static const struct fmt_field_def lshosts_fields[] = {
+    {"HOST_NAME", "HNAME", "HOST_NAME", 11},
+    {"TYPE", NULL, "type", 7},
+    {"MODEL", NULL, "model", 8},
+    {"CPUF", NULL, "cpuf", 5},
+    {"NCPUS", NULL, "ncpus", 5},
+    {"MAXMEM", NULL, "maxmem", 8},
+    {"MAXSWP", NULL, "maxswp", 8},
+    {"SERVER", NULL, "server", 6},
+    {"RESOURCES", "RES", "RESOURCES", 12},
+    {"MAXTMP", NULL, "maxtmp", 8},
+    {"NPROCS", NULL, "nprocs", 6},
+    {"NCORES", NULL, "ncores", 6},
+    {"NTHREADS", NULL, "nthreads", 8},
+    {"RUN_WINDOWS", "RUNWIN", "RUN_WINDOWS", 14}
+};
+
+#define LSHOSTS_NUM_FIELDS \
+    ((int)(sizeof(lshosts_fields) / sizeof(lshosts_fields[0])))
+
 static char *
 stripSpaces(char *field)
 {
@@ -88,7 +110,7 @@ stripSpaces(char *field)
 static void
 usage(char *cmd)
 {
-    fprintf(stderr, "%s: %s [-h] [-V] [-w | -l] [-R res_req] [host_name ...]\n", I18N_Usage, cmd);
+    fprintf(stderr, "%s: %s [-h] [-V] [-w | -l | -o output_format] [-R res_req] [host_name ...]\n", I18N_Usage, cmd);
     fprintf(stderr, "%s\n %s [-h] [-V] -s [static_resouce_name ...]\n", I18N_or, cmd);
 }
 
@@ -284,6 +306,167 @@ print_long(struct hostInfo *hostInfo)
     printf("\n");
 }
 
+static unitTypes
+lshosts_get_unit_for_limits(void)
+{
+    return unitForLimits;
+}
+
+static const char *
+lshosts_unit_suffix(unitTypes unit)
+{
+    switch (unit) {
+    case Gigabytes:
+        return "G";
+    case Terabytes:
+        return "T";
+    case Petabytes:
+        return "P";
+    case Exabytes:
+        return "E";
+    case Megabytes:
+    default:
+        return "M";
+    }
+}
+
+static double
+lshosts_unit_scale(unitTypes unit)
+{
+    double scale = 1.0;
+    int i;
+
+    for (i = 0; i < (int)unit; i++)
+        scale *= 1024.0;
+
+    return scale;
+}
+
+static void
+lshosts_format_space(int value, unitTypes unit, char *buf, size_t buflen)
+{
+    double scaled;
+
+    if (value <= 0) {
+        snprintf(buf, buflen, "-");
+        return;
+    }
+
+    scaled = (double)value / lshosts_unit_scale(unit);
+    snprintf(buf, buflen, "%g%s", scaled, lshosts_unit_suffix(unit));
+}
+
+static void
+lshosts_format_int(int value, char *buf, size_t buflen)
+{
+    if (value > 0)
+        snprintf(buf, buflen, "%d", value);
+    else
+        snprintf(buf, buflen, "-");
+}
+
+static void
+lshosts_format_resources(struct hostInfo *hostInfo, char *buf, size_t buflen)
+{
+    int i;
+    size_t used;
+
+    if (buflen == 0)
+        return;
+
+    if (hostInfo->nRes <= 0) {
+        snprintf(buf, buflen, "-");
+        return;
+    }
+
+    snprintf(buf, buflen, "(");
+    for (i = 0; i < hostInfo->nRes; i++) {
+        used = strlen(buf);
+        if (used >= buflen - 1)
+            break;
+        snprintf(buf + used, buflen - used, "%s%s",
+                 i == 0 ? "" : " ", hostInfo->resources[i]);
+    }
+
+    used = strlen(buf);
+    if (used < buflen - 1)
+        snprintf(buf + used, buflen - used, ")");
+}
+
+static void
+lshosts_get_fmt_value(struct hostInfo *hostInfo, const char *field,
+                      unitTypes unit, char *buf, size_t buflen)
+{
+    if (strcmp(field, "HOST_NAME") == 0) {
+        snprintf(buf, buflen, "%s", hostInfo->hostName);
+    } else if (strcmp(field, "TYPE") == 0) {
+        snprintf(buf, buflen, "%s",
+                 hostInfo->hostType ? hostInfo->hostType : "-");
+    } else if (strcmp(field, "MODEL") == 0) {
+        snprintf(buf, buflen, "%s",
+                 hostInfo->hostModel ? hostInfo->hostModel : "-");
+    } else if (strcmp(field, "CPUF") == 0) {
+        snprintf(buf, buflen, "%.1f", hostInfo->cpuFactor);
+    } else if (strcmp(field, "NCPUS") == 0) {
+        lshosts_format_int(hostInfo->maxCpus, buf, buflen);
+    } else if (strcmp(field, "MAXMEM") == 0) {
+        lshosts_format_space(hostInfo->maxMem, unit, buf, buflen);
+    } else if (strcmp(field, "MAXSWP") == 0) {
+        lshosts_format_space(hostInfo->maxSwap, unit, buf, buflen);
+    } else if (strcmp(field, "SERVER") == 0) {
+        snprintf(buf, buflen, "%s", hostInfo->isServer ? I18N_Yes : I18N_No);
+    } else if (strcmp(field, "RESOURCES") == 0) {
+        lshosts_format_resources(hostInfo, buf, buflen);
+    } else if (strcmp(field, "MAXTMP") == 0) {
+        lshosts_format_space(hostInfo->maxTmp, unit, buf, buflen);
+    } else if (strcmp(field, "NPROCS") == 0) {
+        lshosts_format_int(hostInfo->maxCpus, buf, buflen);
+    } else if (strcmp(field, "NCORES") == 0) {
+        snprintf(buf, buflen, "-");
+    } else if (strcmp(field, "NTHREADS") == 0) {
+        snprintf(buf, buflen, "-");
+    } else if (strcmp(field, "RUN_WINDOWS") == 0) {
+        if (hostInfo->isServer)
+            snprintf(buf, buflen, "%s",
+                     hostInfo->windows && strcmp(hostInfo->windows, "-") != 0
+                     ? hostInfo->windows : "always open");
+        else
+            snprintf(buf, buflen, "-");
+    } else {
+        snprintf(buf, buflen, "-");
+    }
+}
+
+static void
+print_o(struct hostInfo *hostInfo, int numHosts, char *fieldName)
+{
+    struct fmt_request request;
+    char errbuf[MAXLINELEN];
+    char value[MAXLINELEN];
+    unitTypes unit;
+    int i, j;
+
+    if (fmt_output_parse(fieldName, lshosts_fields, LSHOSTS_NUM_FIELDS,
+                         &request, errbuf, sizeof(errbuf)) < 0) {
+        fprintf(stderr, "%s\n", errbuf);
+        exit(99);
+    }
+
+    unit = lshosts_get_unit_for_limits();
+    fmt_output_print_header(stdout, &request);
+    for (i = 0; i < numHosts; i++) {
+        for (j = 0; j < request.num_columns; j++) {
+            lshosts_get_fmt_value(&hostInfo[i],
+                                  request.columns[j].field->name,
+                                  unit, value, sizeof(value));
+            fmt_output_print_value(stdout, &request, j, value);
+        }
+        fmt_output_print_eol(stdout);
+    }
+
+    fmt_output_free(&request);
+}
+
 int
 main(int argc, char **argv)
 {
@@ -294,8 +477,10 @@ main(int argc, char **argv)
     struct hostent *hp;
     int    i, j;
     char   *resReq = NULL;
+    char   *fieldName = NULL;
     char   longformat = FALSE;
     char   longname = FALSE;
+    char   oflag = FALSE;
     char   staticResource = FALSE, otherOption = FALSE;
     int extView = FALSE;
     int achar;
@@ -303,9 +488,14 @@ main(int argc, char **argv)
     int     options=0;
     int isClus;
     int rc;
+    struct fmt_request formatCheck;
+    char fmtErrbuf[MAXLINELEN];
+    char outputFields[MAXLINELEN];
+    int outputFieldsLen = 0;
 
 
     rc = _i18n_init ( I18N_CAT_MIN );
+    outputFields[0] = '\0';
 
     if (ls_initdebug(argv[0]) < 0) {
         ls_perror("ls_initdebug");
@@ -336,7 +526,7 @@ main(int argc, char **argv)
             optind = i + 1;
             extView = TRUE;
         } else if (strcmp(argv[i], "-R") == 0 || strcmp(argv[i], "-l") == 0
-                  || strcmp(argv[i], "-w") == 0) {
+                  || strcmp(argv[i], "-w") == 0 || strcmp(argv[i], "-o") == 0) {
             otherOption = TRUE;
             if (staticResource == TRUE) {
                 usage(argv[0]);
@@ -348,7 +538,7 @@ main(int argc, char **argv)
     if (staticResource == TRUE) {
         displayShareResource(argc, argv, optind, TRUE, extView );
     } else {
-        while ((achar = getopt(argc, argv, "R:lw")) != EOF) {
+        while ((achar = getopt(argc, argv, "R:lwo:")) != EOF) {
  	    switch (achar) {
             case 'R':
 	        if (strlen(optarg) > MAXLINELEN) {
@@ -358,18 +548,50 @@ main(int argc, char **argv)
 	        resReq = optarg;
 	        break;
             case 'l':
+                if (longname || oflag) {
+                    usage(argv[0]);
+                    exit(-1);
+                }
 	        longformat = TRUE;
 	        break;
             case 'w':
+                if (longformat || oflag) {
+                    usage(argv[0]);
+                    exit(-1);
+                }
 	        longname = TRUE;
 	        break;
+            case 'o':
+                if (longformat || longname || oflag || *optarg == '\0') {
+                    usage(argv[0]);
+                    exit(-1);
+                }
+                oflag = TRUE;
+                fieldName = optarg;
+                break;
             default:
 	        usage(argv[0]);
 	        exit(-1);
-	    }
+		    }
+	        }
+        if (oflag) {
+            if (fmt_output_parse(fieldName, lshosts_fields, LSHOSTS_NUM_FIELDS,
+                                 &formatCheck, fmtErrbuf, sizeof(fmtErrbuf)) < 0) {
+                fprintf(stderr, "%s\n", fmtErrbuf);
+                exit(99);
+            }
+            outputFieldsLen = fmt_output_fields_string(&formatCheck,
+                                                       outputFields,
+                                                       sizeof(outputFields));
+            if (outputFieldsLen < 0 || outputFieldsLen > sizeof(outputFields)) {
+                fprintf(stderr, "custom output field list is too long.\n");
+                fmt_output_free(&formatCheck);
+                exit(99);
+            }
+            fmt_output_free(&formatCheck);
         }
 
-        i=0;
+	        i=0;
         unknown = 0;
         for ( ; optind < argc ; optind++) {
     	    if (strcmp(argv[optind],"allclusters") == 0) {
@@ -400,22 +622,38 @@ main(int argc, char **argv)
             exit(-1);
 
         if (i == 0) {
+            if (oflag && ls_set_custom_output_fields(outputFields) < 0) {
+                ls_perror("ls_set_custom_output_fields");
+                exit(-1);
+            }
             TIMEIT(0, (hostinfo = ls_gethostinfo(resReq, &numhosts, NULL, 0,
                                                  options)), "ls_gethostinfo");
+            if (oflag)
+                ls_set_custom_output_fields(NULL);
             if (hostinfo == NULL) {
                 ls_perror("ls_gethostinfo()");
                 exit(-1);
             }
         } else {
+            if (oflag && ls_set_custom_output_fields(outputFields) < 0) {
+                ls_perror("ls_set_custom_output_fields");
+                exit(-1);
+            }
     	    TIMEIT(0, (hostinfo = ls_gethostinfo(resReq, &numhosts, namebufs,
                                                  i, 0)), "ls_gethostinfo");
+            if (oflag)
+                ls_set_custom_output_fields(NULL);
 	    if (hostinfo == NULL) {
 	        ls_perror("ls_gethostinfo");
 	        exit(-1);
 	    }
         }
 
-        if (!longformat && !longname) {
+        if (oflag) {
+            print_o(hostinfo, numhosts, fieldName);
+            _i18n_end ( ls_catd );
+            exit(0);
+        } else if (!longformat && !longname) {
 	    char *buf1, *buf2, *buf3, *buf4, *buf5;
 	    char *buf6, *buf7, *buf8, *buf9;
 
@@ -531,4 +769,3 @@ main(int argc, char **argv)
     _i18n_end ( ls_catd );
     return(0);
 }
-
