@@ -23,6 +23,7 @@
 
 #include <netdb.h>
 #include "../../lsf/intlib/intlibout.h"
+#include "../../lsf/intlib/fmt_output.h"
 
 #define HOST_NAME_LENGTH    18
 #define HOST_STATUS_LENGTH  14
@@ -88,9 +89,12 @@ static char *formatHeader(char **, int, int);
 static char * stripSpaces(char *field);
 static float getLoad(char *, float *, int *);
 static char ** formLINamesList ( struct lsInfo *);
+static void bhosts_init_load_formats(struct lsInfo *);
+static void bhosts_format_load_value(char *, float, int, char *, size_t);
 
 static void prtHostsLong (int, struct hostInfoEnt *);
 static void prtHostsShort(int, struct hostInfoEnt *);
+static void prtHostsO(int, struct hostInfoEnt *, char *);
 static void prtLoad(struct hostInfoEnt *, struct lsInfo *);
 static void sort_host (int, struct hostInfoEnt *);
 static int repeatHost (int, struct hostInfoEnt *);
@@ -112,11 +116,30 @@ static void  insertSlotsToResults(struct hostInfoEnt  *hPtr,
                                   int  *last,
                                   struct lsInfo *lsInfo);
 
+static const struct fmt_field_def bhosts_fields[] = {
+    {"HOST_NAME", "HNAME", "HOST_NAME", HOST_NAME_LENGTH},
+    {"STATUS", "STAT", "STATUS", HOST_STATUS_SHORT},
+    {"JL_U", "JLU", "JL/U", HOST_JL_U_LENGTH},
+    {"MAX", NULL, "MAX", HOST_MAX_LENGTH},
+    {"NJOBS", NULL, "NJOBS", HOST_NJOBS_LENGTH},
+    {"RUN", NULL, "RUN", HOST_RUN_LENGTH},
+    {"SSUSP", NULL, "SSUSP", HOST_SSUSP_LENGTH},
+    {"USUSP", NULL, "USUSP", HOST_USUSP_LENGTH},
+    {"RSV", NULL, "RSV", HOST_RSV_LENGTH},
+    {"DISPATCH_WINDOW", "DISPWIN", "DISPATCH_WINDOW", 16},
+    {"AVAILABLE_MEM", NULL, "AVAILABLE_MEM", 13},
+    {"RESERVED_MEM", NULL, "RESERVED_MEM", 12},
+    {"TOTAL_MEM", NULL, "TOTAL_MEM", 10}
+};
+
+#define BHOSTS_NUM_FIELDS \
+    ((int)(sizeof(bhosts_fields) / sizeof(bhosts_fields[0])))
+
 void
 usage (char *cmd)
 {
     fprintf(stderr, I18N_Usage);
-    fprintf(stderr, ":\n%s [-h] [-V] [-R res_req] [-w | -l] [host_name ... | cluster_name]\n", cmd);
+    fprintf(stderr, ":\n%s [-h] [-V] [-R res_req] [-w | -l | -o output_format] [host_name ... | cluster_name]\n", cmd);
     fprintf(stderr, I18N_or );
     fprintf(stderr, "\n%s [-h] [-V] -s [ resource_name ] \n", cmd);
     exit(-1);
@@ -127,12 +150,17 @@ main(int argc, char **argv)
 {
     int i, cc, local = FALSE;
     struct hostInfoEnt *hInfo;
-    char **hosts=NULL, **hostPoint, *resReq = NULL;
-    char lflag = FALSE, sOption = FALSE, otherOption = FALSE;
+    char **hosts=NULL, **hostPoint, *resReq = NULL, *fieldName = NULL;
+    char lflag = FALSE, sOption = FALSE, otherOption = FALSE, oflag = FALSE;
     int numHosts;
+    struct fmt_request formatCheck;
+    char fmtErrbuf[MAXLINELEN];
+    char outputFields[MAXLINELEN];
+    int outputFieldsLen = 0;
 
     _lsb_recvtimeout = 30;
     _i18n_init ( I18N_CAT_MIN );
+    outputFields[0] = '\0';
 
     if (lsb_init(argv[0]) < 0) {
 	lsb_perror("lsb_init");
@@ -158,7 +186,7 @@ main(int argc, char **argv)
             sOption = TRUE;
             optind = i + 1;
         } else if (strcmp(argv[i], "-R") == 0 || strcmp(argv[i], "-l") == 0
-                   || strcmp(argv[i], "-w") == 0) {
+                   || strcmp(argv[i], "-w") == 0 || strcmp(argv[i], "-o") == 0) {
             otherOption = TRUE;
             if (sOption == TRUE) {
                 usage(argv[0]);
@@ -172,31 +200,59 @@ main(int argc, char **argv)
         displayShareRes(argc, argv, optind);
         return (0);
     }
-    while ((cc = getopt(argc, argv, "lwR:")) != EOF) {
+    while ((cc = getopt(argc, argv, "lwR:o:")) != EOF) {
         switch (cc) {
 	case 'l':
 	    lflag = TRUE;
-            if (wflag)
+            if (wflag || oflag)
                 usage(argv[0]);
 	    break;
 	case 'w':
 	    wflag = TRUE;
-            if (lflag)
+            if (lflag || oflag)
                 usage(argv[0]);
 	    break;
 	case 'R':
 	    resReq = optarg;
 	    break;
+	case 'o':
+	    if (oflag || lflag || wflag || *optarg == '\0')
+                usage(argv[0]);
+            oflag = TRUE;
+            fieldName = optarg;
+	    break;
         default:
             usage(argv[0]);
+	}
+    }
+    if (oflag) {
+        if (fmt_output_parse(fieldName, bhosts_fields, BHOSTS_NUM_FIELDS,
+                             &formatCheck, fmtErrbuf, sizeof(fmtErrbuf)) < 0) {
+            fprintf(stderr, "%s\n", fmtErrbuf);
+            exit(99);
         }
+        outputFieldsLen = fmt_output_fields_string(&formatCheck,
+                                                   outputFields,
+                                                   sizeof(outputFields));
+        if (outputFieldsLen < 0 || outputFieldsLen > sizeof(outputFields)) {
+            fprintf(stderr, "custom output field list is too long.\n");
+            fmt_output_free(&formatCheck);
+            exit(99);
+        }
+        fmt_output_free(&formatCheck);
     }
     numHosts = getNames (argc, argv, optind, &hosts, &local, "host");
     if ((local && numHosts == 1) || !numHosts)
         hostPoint = NULL;
     else
         hostPoint = hosts;
+    if (oflag && lsb_set_custom_output_fields(outputFields) < 0) {
+        lsb_perror("lsb_set_custom_output_fields");
+        exit(-1);
+    }
     TIMEIT(0, (hInfo = lsb_hostinfo_ex(hostPoint, &numHosts, resReq, 0)), "lsb_hostinfo");
+    if (oflag)
+        lsb_set_custom_output_fields(NULL);
     if (!hInfo) {
         if (lsberrno == LSBE_BAD_HOST && hostPoint)
             lsb_perror (hosts[numHosts]);
@@ -208,7 +264,9 @@ main(int argc, char **argv)
     if (numHosts > 1 && resReq == NULL)
 	sort_host (numHosts, hInfo);
 
-    if ( lflag )
+    if (oflag)
+        prtHostsO(numHosts, hInfo, fieldName);
+    else if ( lflag )
         prtHostsLong(numHosts, hInfo);
     else
         prtHostsShort(numHosts, hInfo);
@@ -216,6 +274,207 @@ main(int argc, char **argv)
     _i18n_end ( ls_catd );
     exit(0);
 
+}
+
+struct bhosts_fmt_record {
+    struct hostInfoEnt *host;
+    char *status;
+    char availableMem[MAXLINELEN];
+    char reservedMem[MAXLINELEN];
+    char totalMem[MAXLINELEN];
+};
+
+static int
+bhosts_request_has_field(struct fmt_request *request, const char *field)
+{
+    int i;
+
+    for (i = 0; i < request->num_columns; i++) {
+        if (strcmp(request->columns[i].field->name, field) == 0)
+            return TRUE;
+    }
+
+    return FALSE;
+}
+
+static char *
+bhosts_get_status(struct hostInfoEnt *host)
+{
+    char *status = I18N_ok;
+
+    if (host->hStatus & HOST_STAT_UNAVAIL)
+        status = I18N_unavail;
+    else if (host->hStatus & HOST_STAT_UNREACH)
+        status = (_i18n_msg_get(ls_catd, NL_SETN, 1626, "unreach"));
+    else if (host->hStatus & (HOST_STAT_BUSY
+                              | HOST_STAT_WIND
+                              | HOST_STAT_DISABLED
+                              | HOST_STAT_EXCLUSIVE
+                              | HOST_STAT_LOCKED
+                              | HOST_STAT_LOCKED_MASTER
+                              | HOST_STAT_FULL
+                              | HOST_STAT_NO_LIM))
+        getCloseString(host->hStatus, &status);
+
+    return status;
+}
+
+static void
+bhosts_format_limit(int value, char *buf, size_t buflen)
+{
+    if (value < INFINIT_INT)
+        snprintf(buf, buflen, "%d", value);
+    else
+        snprintf(buf, buflen, "-");
+}
+
+static void
+bhosts_set_mem_values(struct hostInfoEnt *host, struct lsInfo *lsInfo,
+                      struct bhosts_fmt_record *record)
+{
+    char *memIndex = "mem";
+    float totalValue;
+    float realValue;
+    float reservedValue;
+    float availableValue;
+    int index = -1;
+    int realIndex = -1;
+    int busy = FALSE;
+
+    strcpy(record->availableMem, "-");
+    strcpy(record->reservedMem, "-");
+    strcpy(record->totalMem, "-");
+
+    if (!lsInfo || !host->load || !host->realLoad)
+        return;
+
+    bhosts_init_load_formats(lsInfo);
+
+    totalValue = getLoad(memIndex, host->load, &index);
+    realValue = getLoad(memIndex, host->realLoad, &realIndex);
+    if (index < 0 || realIndex < 0 ||
+        totalValue >= INFINIT_LOAD || realValue >= INFINIT_LOAD)
+        return;
+
+    reservedValue = totalValue >= realValue
+                    ? totalValue - realValue
+                    : realValue - totalValue;
+    availableValue = totalValue - reservedValue;
+    if (availableValue < 0)
+        availableValue = 0;
+
+    if ((host->hStatus & HOST_STAT_BUSY) &&
+        (LSB_ISBUSYON(host->busySched, index) ||
+         LSB_ISBUSYON(host->busyStop, index)))
+        busy = TRUE;
+
+    bhosts_format_load_value(memIndex, totalValue, busy, record->totalMem,
+                             sizeof(record->totalMem));
+    bhosts_format_load_value(memIndex, reservedValue, FALSE,
+                             record->reservedMem,
+                             sizeof(record->reservedMem));
+    bhosts_format_load_value(memIndex, availableValue, FALSE,
+                             record->availableMem,
+                             sizeof(record->availableMem));
+}
+
+static void
+bhosts_prepare_fmt_record(struct hostInfoEnt *host, struct lsInfo *lsInfo,
+                          int needMem, struct bhosts_fmt_record *record)
+{
+    memset(record, 0, sizeof(*record));
+    record->host = host;
+    record->status = bhosts_get_status(host);
+    strcpy(record->availableMem, "-");
+    strcpy(record->reservedMem, "-");
+    strcpy(record->totalMem, "-");
+
+    if (needMem)
+        bhosts_set_mem_values(host, lsInfo, record);
+}
+
+static void
+bhosts_get_fmt_value(struct bhosts_fmt_record *record, const char *field,
+                     char *buf, size_t buflen)
+{
+    struct hostInfoEnt *host = record->host;
+
+    if (strcmp(field, "HOST_NAME") == 0) {
+        snprintf(buf, buflen, "%s", host->host);
+    } else if (strcmp(field, "STATUS") == 0) {
+        snprintf(buf, buflen, "%s", record->status);
+    } else if (strcmp(field, "JL_U") == 0) {
+        bhosts_format_limit(host->userJobLimit, buf, buflen);
+    } else if (strcmp(field, "MAX") == 0) {
+        bhosts_format_limit(host->maxJobs, buf, buflen);
+    } else if (strcmp(field, "NJOBS") == 0) {
+        snprintf(buf, buflen, "%d", host->numJobs);
+    } else if (strcmp(field, "RUN") == 0) {
+        snprintf(buf, buflen, "%d", host->numRUN);
+    } else if (strcmp(field, "SSUSP") == 0) {
+        snprintf(buf, buflen, "%d", host->numSSUSP);
+    } else if (strcmp(field, "USUSP") == 0) {
+        snprintf(buf, buflen, "%d", host->numUSUSP);
+    } else if (strcmp(field, "RSV") == 0) {
+        snprintf(buf, buflen, "%d", host->numRESERVE);
+    } else if (strcmp(field, "DISPATCH_WINDOW") == 0) {
+        snprintf(buf, buflen, "%s",
+                 host->windows && host->windows[0] != '\0'
+                 ? host->windows : "-");
+    } else if (strcmp(field, "AVAILABLE_MEM") == 0) {
+        snprintf(buf, buflen, "%s", record->availableMem);
+    } else if (strcmp(field, "RESERVED_MEM") == 0) {
+        snprintf(buf, buflen, "%s", record->reservedMem);
+    } else if (strcmp(field, "TOTAL_MEM") == 0) {
+        snprintf(buf, buflen, "%s", record->totalMem);
+    } else {
+        snprintf(buf, buflen, "-");
+    }
+}
+
+static void
+prtHostsO(int numReply, struct hostInfoEnt *hInfo, char *fieldName)
+{
+    struct fmt_request request;
+    struct bhosts_fmt_record record;
+    struct lsInfo *lsInfo = NULL;
+    char errbuf[MAXLINELEN];
+    char value[MAXLINELEN];
+    int needMem, i, j;
+
+    if (fmt_output_parse(fieldName, bhosts_fields, BHOSTS_NUM_FIELDS,
+                         &request, errbuf, sizeof(errbuf)) < 0) {
+        fprintf(stderr, "%s\n", errbuf);
+        exit(99);
+    }
+
+    needMem = bhosts_request_has_field(&request, "AVAILABLE_MEM") ||
+              bhosts_request_has_field(&request, "RESERVED_MEM") ||
+              bhosts_request_has_field(&request, "TOTAL_MEM");
+    if (needMem) {
+        if ((lsInfo = ls_info()) == NULL) {
+            ls_perror("ls_info");
+            fmt_output_free(&request);
+            exit(-1);
+        }
+        lsInfoPtr = lsInfo;
+    }
+
+    fmt_output_print_header(stdout, &request);
+    for (i = 0; i < numReply; i++) {
+        if (repeatHost(i, hInfo))
+            continue;
+
+        bhosts_prepare_fmt_record(&hInfo[i], lsInfo, needMem, &record);
+        for (j = 0; j < request.num_columns; j++) {
+            bhosts_get_fmt_value(&record, request.columns[j].field->name,
+                                 value, sizeof(value));
+            fmt_output_print_value(stdout, &request, j, value);
+        }
+        fmt_output_print_eol(stdout);
+    }
+
+    fmt_output_free(&request);
 }
 
 static void
@@ -550,16 +809,7 @@ prtLoad (struct hostInfoEnt  *hPtrs, struct lsInfo *lsInfo)
     int last;
     int curLoadNum = lsInfo->numIndx + 1; /*number of load + 'slots'*/
 
-    if (!fmt) {
-        if(!(fmt=(struct indexFmt *)
-            malloc((curLoadNum + 2)*sizeof (struct indexFmt)))) {
-            lsberrno=LSBE_NO_MEM;
-            lsb_perror("print_long");
-            exit(-1);
-        }
-        for (i=0; i<NBUILTINDEX+2; i++)
-            fmt[i]=fmt1[i];
-    }
+    bhosts_init_load_formats(lsInfo);
     if ((nlp = formLINamesList (lsInfo)) == NULL) {
         fprintf (stderr, "%s\n",
             _i18n_msg_get(ls_catd,NL_SETN,1629, "Bad load index name specified")); /* catgets  1629  */
@@ -719,6 +969,71 @@ stripSpaces(char *field)
     if (i < len-1)
         field[i+1] = '\0';
     return(cp);
+}
+
+static void
+bhosts_init_load_formats(struct lsInfo *lsInfo)
+{
+    int curLoadNum;
+    int i;
+
+    if (fmt)
+        return;
+
+    curLoadNum = lsInfo->numIndx + 1;
+    if (!(fmt = (struct indexFmt *)
+          malloc((curLoadNum + 2) * sizeof(struct indexFmt)))) {
+        lsberrno = LSBE_NO_MEM;
+        lsb_perror("print_long");
+        exit(-1);
+    }
+
+    for (i = 0; i < NBUILTINDEX + 2; i++)
+        fmt[i] = fmt1[i];
+}
+
+static void
+bhosts_format_load_value(char *name, float load, int busy, char *buf,
+                         size_t buflen)
+{
+    int id;
+    char *sp;
+    char tmpfield[MAXFIELDSIZE];
+    char fmtField[MAXFIELDSIZE];
+    char firstFmt[MAXFIELDSIZE];
+
+    if (load >= INFINIT_LOAD) {
+        snprintf(buf, buflen, "-");
+        return;
+    }
+
+    id = nameToFmt(name);
+    if (busy)
+        strcpy(firstFmt, fmt[id].busy);
+    else
+        strcpy(firstFmt, fmt[id].ok);
+
+    sprintf(fmtField, "%s%s", firstFmt, fmt[id].normFmt);
+    sprintf(tmpfield, fmtField, load * fmt[id].scale);
+    sp = stripSpaces(tmpfield);
+
+    if (strlen(sp) > fmt[id].dispLen) {
+        if (load > 1024)
+            sprintf(fmtField, "%s%s", firstFmt, fmt[id].expFmt);
+        else
+            sprintf(fmtField, "%s%s", firstFmt, fmt[id].normFmt);
+
+        if (load > 1024 &&
+            (!strcmp(fmt[id].name, "mem") ||
+             !strcmp(fmt[id].name, "tmp") ||
+             !strcmp(fmt[id].name, "swp")))
+            sprintf(tmpfield, fmtField, (load * fmt[id].scale) / 1024);
+        else
+            sprintf(tmpfield, fmtField, load * fmt[id].scale);
+    }
+
+    sp = stripSpaces(tmpfield);
+    snprintf(buf, buflen, "%s", sp);
 }
 
 static int
