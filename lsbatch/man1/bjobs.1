@@ -18,7 +18,7 @@
 \fBbjobs\fR [\fB-d\fR] [\fB-p\fR] [\fB-r\fR] [\fB-s\fR] [\fB-A\fR] [\fB-w\fR | \fB-l\fR] \fB \fR\fIjob_ID ...
 .BR
 .PP
-\fBbjobs \fR[\fB-o\fR \fIcustomized_fields\fR] [\fB-json\fR] \fB \fR\fIjob_ID ...
+\fBbjobs \fR[\fB-o\fR \fIoutput_format\fR] [\fB-json\fR] \fB \fR\fIjob_ID ...
 .BR
 .PP
 \fBbjobs \fR[\fB-h\fR | \fB-V\fR]
@@ -205,10 +205,11 @@ keyword all specifies all users.
 
 
 .TP
-\fB-o customized_fields
+\fB-o\fR \fIoutput_format\fR
 \fR
 .IP
-Sets the customized output fields with default delimiter of space character, such as: bjobs -o "jobid USER STAT".
+Displays only the requested custom output fields. The \fB-o\fR option
+cannot be used with \fB-w\fR, \fB-l\fR, or \fB-UF\fR. See CUSTOM OUTPUT.
 
 
 .TP
@@ -779,6 +780,42 @@ PSUSP
 Number of held jobs of the job array. 
 
 .RE
+.SH CUSTOM OUTPUT
+.BR
+.PP
+.PP
+The \fB-o\fR option accepts a blank-separated output format:
+
+.IP
+\fIfield_name\fR[:[-]\fIoutput_width\fR] ... [delimiter='\fIcharacter\fR']
+.br
+\fIfield_name\fR%[-]\fIoutput_width\fR ... [delimiter='\fIcharacter\fR']
+
+.PP
+Field names and aliases are case-insensitive. A positive width right-aligns
+the field, and a negative width left-aligns the field. Without
+\fBdelimiter\fR, fields are separated by one space. With \fBdelimiter\fR,
+the specified single character is used between fields. Values longer than
+their width are not truncated.
+
+.PP
+Supported fields are:
+
+.IP
+JOBID, JOB_IDX, USER, STAT, QUEUE, FROM_HOST, EXEC_HOST, JOB_NAME,
+SUBMIT_TIME, PROJ_NAME, CPU_USED, MEM, SWAP, PIDS, START_TIME,
+FINISH_TIME, EXIT_CODE.
+
+.PP
+Examples:
+
+.IP
+\fBbjobs -o "jobid user stat queue exec_host job_name"\fR
+.br
+\fBbjobs -a -o "jobid:10 stat:-8 exit_code delimiter=','"\fR
+.br
+\fBbjobs -a -o "jobid stat queue exit_code" -json\fR
+
 .SH EXAMPLES
 .BR
 .PP

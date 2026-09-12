@@ -28,6 +28,7 @@
 #include <netdb.h>
 #include <errno.h>
 #include <cJSON.h>
+#include "../../lsf/intlib/fmt_output.h"
 #define NL_SETN 8
 
 
@@ -45,6 +46,7 @@ static void displayO(struct jobInfoEnt *, struct jobInfoHead *,
                         int, int, char*);
 static cJSON *displayJson(struct jobInfoEnt *, struct jobInfoHead *,
         int, int, char*);
+static int bjobs_parse_fmt_request(char *, struct fmt_request *);
 
 static LS_LONG_INT *usrJids;
 static int *numJobs;
@@ -58,11 +60,28 @@ int uflag = FALSE;
 int Wflag = FALSE;
 int jsonflag = FALSE;
 
-char *fields[] = {
-        "JOBID", "USER", "STAT", "QUEUE", "FROM_HOST", "EXEC_HOST", "JOB_NAME", "SUBMIT_TIME",
-        "PROJ_NAME", "CPU_USED", "MEM", "SWAP", "PIDS", "START_TIME", "FINISH_TIME"
+static const struct fmt_field_def bjobs_fields[] = {
+    {"JOBID", NULL, "JOBID", 7},
+    {"JOB_IDX", NULL, "JOB_IDX", 7},
+    {"USER", NULL, "USER", 8},
+    {"STAT", NULL, "STAT", 5},
+    {"QUEUE", NULL, "QUEUE", 10},
+    {"FROM_HOST", NULL, "FROM_HOST", 12},
+    {"EXEC_HOST", NULL, "EXEC_HOST", 12},
+    {"JOB_NAME", NULL, "JOB_NAME", 12},
+    {"SUBMIT_TIME", NULL, "SUBMIT_TIME", 12},
+    {"PROJ_NAME", NULL, "PROJ_NAME", 12},
+    {"CPU_USED", NULL, "CPU_USED", 10},
+    {"MEM", NULL, "MEM", 8},
+    {"SWAP", NULL, "SWAP", 8},
+    {"PIDS", NULL, "PIDS", 12},
+    {"START_TIME", NULL, "START_TIME", 20},
+    {"FINISH_TIME", NULL, "FINISH_TIME", 20},
+    {"EXIT_CODE", NULL, "EXIT_CODE", 9}
 };
-#define FIELD_INDEX          15
+
+#define BJOBS_NUM_FIELDS \
+    ((int)(sizeof(bjobs_fields) / sizeof(bjobs_fields[0])))
 
 static int isLSFAdmin(void);
 static char *Timer2String(float timer);
@@ -80,7 +99,7 @@ usage (char *cmd)
     fprintf(stderr, I18N_Usage);
 
     fprintf(stderr, \
-": %s [-h] [-V] [-w |-l |-UF] [-a] [-d] [-p] [-s] [-r] [-o] [-json]", cmd);
+": %s [-h] [-V] [-w |-l |-UF] [-a] [-d] [-p] [-s] [-r] [-o output_format] [-json]", cmd);
 
     if (lsbMode_ == LSB_MODE_BATCH)
         fprintf(stderr, " [-A]\n");
@@ -135,8 +154,12 @@ main (int argc, char **argv)
     struct queueInfoEnt *queueInfo;
     char *qHost = NULL;
     char *qUser = NULL;
+    struct fmt_request formatCheck;
+    char outputFields[MAXLINELEN];
+    int outputFieldsLen = 0;
 
     rc = _i18n_init ( I18N_CAT_MIN );
+    outputFields[0] = '\0';
 
     if (lsb_init(argv[0]) < 0) {
         lsb_perror("lsb_init");
@@ -154,7 +177,17 @@ main (int argc, char **argv)
     }
 
     if (format == O_FORMAT) {
-
+        if (bjobs_parse_fmt_request(fieldName, &formatCheck) < 0)
+            exit(99);
+        outputFieldsLen = fmt_output_fields_string(&formatCheck,
+                                                   outputFields,
+                                                   sizeof(outputFields));
+        if (outputFieldsLen < 0 || outputFieldsLen > sizeof(outputFields)) {
+            fprintf(stderr, "custom output field list is too long.\n");
+            fmt_output_free(&formatCheck);
+            exit(99);
+        }
+        fmt_output_free(&formatCheck);
     }
 
     if ((format == LONG_FORMAT || format == UF_FORMAT) && (options & PEND_JOB))
@@ -191,12 +224,18 @@ main (int argc, char **argv)
         exit(-1);
     }
 
+    if (format == O_FORMAT && lsb_set_custom_output_fields(outputFields) < 0) {
+        lsb_perror("lsb_set_custom_output_fields");
+        exit(-1);
+    }
     TIMEIT(0, (jInfoH = lsb_openjobinfo_a(jobId,
                                           jobName,
                                           user,
                                           queue,
                                           host,
                                           options)), "lsb_openjobinfo_a");
+    if (format == O_FORMAT)
+        lsb_set_custom_output_fields(NULL);
 
     if (jInfoH == NULL) {
 
@@ -843,465 +882,226 @@ cleanup:
 
 }
 
-char *string_upper(char *str) {
-    size_t i;
-    for (i = 0; str[i] != '\0'; i++) {
-        str[i] = toupper((unsigned char)str[i]);
+struct bjobs_fmt_record {
+    struct jobInfoEnt *job;
+    struct submit *submitInfo;
+    char *status;
+    char osUserName[MAXLINELEN];
+    char execHost[MAXLINELEN];
+    char jobName[MAXLINELEN];
+    char submitTime[64];
+};
+
+static void
+bjobs_prepare_fmt_record(struct jobInfoEnt *job, struct bjobs_fmt_record *record)
+{
+    char *pos;
+    NAMELIST *hostList = NULL;
+
+    memset(record, 0, sizeof(*record));
+    record->job = job;
+    record->submitInfo = &job->submit;
+    record->status = get_status(job);
+
+    if (getOSUserName_(job->user, record->osUserName, MAXLINELEN) != 0) {
+        strncpy(record->osUserName, job->user, MAXLINELEN);
+        record->osUserName[MAXLINELEN - 1] = '\0';
     }
-    return str;
+
+    strcpy(record->submitTime,
+           _i18n_ctime(ls_catd, CTIME_FORMAT_b_d_H_M, &job->submitTime));
+
+    if (IS_PEND(job->status)) {
+        strcpy(record->execHost, "-");
+    } else if (job->numExHosts == 0) {
+        strcpy(record->execHost, "   -   ");
+    } else if (lsbParams[LSB_SHORT_HOSTLIST].paramValue &&
+               job->numExHosts > 1 &&
+               strcmp(lsbParams[LSB_SHORT_HOSTLIST].paramValue, "1") == 0) {
+        hostList = lsb_compressStrList(job->exHosts, job->numExHosts);
+        if (!hostList)
+            exit(99);
+        snprintf(record->execHost, sizeof(record->execHost), "%d*%s",
+                 hostList->counter[0], hostList->names[0]);
+    } else {
+        snprintf(record->execHost, sizeof(record->execHost), "%s",
+                 job->exHosts[0]);
+    }
+
+    snprintf(record->jobName, sizeof(record->jobName), "%s",
+             record->submitInfo->jobName ? record->submitInfo->jobName : "-");
+    if (LSB_ARRAY_IDX(job->jobId) && (pos = strchr(record->jobName, '['))) {
+        *pos = '\0';
+        snprintf(record->jobName + strlen(record->jobName),
+                 sizeof(record->jobName) - strlen(record->jobName), "[%d]",
+                 LSB_ARRAY_IDX(job->jobId));
+    }
+}
+
+static void
+bjobs_get_fmt_value(struct bjobs_fmt_record *record, const char *field,
+                    char *buf, size_t buflen)
+{
+    struct jobInfoEnt *job = record->job;
+    float cpuTime = 0;
+    int i;
+
+    if (strcmp(field, "JOBID") == 0) {
+        snprintf(buf, buflen, "%d", LSB_ARRAY_JOBID(job->jobId));
+    } else if (strcmp(field, "JOB_IDX") == 0) {
+        if (LSB_ARRAY_IDX(job->jobId))
+            snprintf(buf, buflen, "%d", LSB_ARRAY_IDX(job->jobId));
+        else
+            snprintf(buf, buflen, "-");
+    } else if (strcmp(field, "USER") == 0) {
+        snprintf(buf, buflen, "%s", record->osUserName);
+    } else if (strcmp(field, "STAT") == 0) {
+        snprintf(buf, buflen, "%s", record->status);
+    } else if (strcmp(field, "QUEUE") == 0) {
+        snprintf(buf, buflen, "%s", record->submitInfo->queue);
+    } else if (strcmp(field, "FROM_HOST") == 0) {
+        snprintf(buf, buflen, "%s", job->fromHost);
+    } else if (strcmp(field, "EXEC_HOST") == 0) {
+        snprintf(buf, buflen, "%s", record->execHost);
+    } else if (strcmp(field, "JOB_NAME") == 0) {
+        snprintf(buf, buflen, "%s", record->jobName);
+    } else if (strcmp(field, "SUBMIT_TIME") == 0) {
+        snprintf(buf, buflen, "%s", record->submitTime);
+    } else if (strcmp(field, "PROJ_NAME") == 0) {
+        snprintf(buf, buflen, "%s", job->submit.projectName);
+    } else if (strcmp(field, "CPU_USED") == 0) {
+        if (job->cpuTime > 0)
+            cpuTime = job->cpuTime;
+        else
+            cpuTime = job->runRusage.utime + job->runRusage.stime;
+        snprintf(buf, buflen, "%s", Timer2String(cpuTime));
+    } else if (strcmp(field, "MEM") == 0) {
+        snprintf(buf, buflen, "%d",
+                 ((job->runRusage.mem > 0) ? job->runRusage.mem : 0));
+    } else if (strcmp(field, "SWAP") == 0) {
+        snprintf(buf, buflen, "%d",
+                 ((job->runRusage.swap > 0) ? job->runRusage.swap : 0));
+    } else if (strcmp(field, "PIDS") == 0) {
+        buf[0] = '\0';
+        if (job->runRusage.npids) {
+            for (i = 0; i < job->runRusage.npids; i++) {
+                size_t used = strlen(buf);
+
+                if (used >= buflen - 1)
+                    break;
+                snprintf(buf + used, buflen - used,
+                         "%s%d", i == 0 ? "" : ",",
+                         job->runRusage.pidInfo[i].pid);
+            }
+        } else {
+            snprintf(buf, buflen, "-");
+        }
+    } else if (strcmp(field, "START_TIME") == 0) {
+        if (job->startTime == 0)
+            snprintf(buf, buflen, "-");
+        else
+            snprintf(buf, buflen, "%s", Time2String(job->startTime));
+    } else if (strcmp(field, "FINISH_TIME") == 0) {
+        if (job->endTime == 0)
+            snprintf(buf, buflen, "-");
+        else
+            snprintf(buf, buflen, "%s", Time2String(job->endTime));
+    } else if (strcmp(field, "EXIT_CODE") == 0) {
+        if (IS_FINISH(job->status)) {
+            LS_WAIT_T wStatus;
+            LS_STATUS(wStatus) = job->exitStatus;
+            snprintf(buf, buflen, "%d", WEXITSTATUS(wStatus));
+        } else {
+            snprintf(buf, buflen, "-");
+        }
+    } else {
+        snprintf(buf, buflen, "-");
+    }
+}
+
+static int
+bjobs_parse_fmt_request(char *fieldName, struct fmt_request *request)
+{
+    char errbuf[MAXLINELEN];
+
+    if (fmt_output_parse(fieldName, bjobs_fields, BJOBS_NUM_FIELDS, request,
+                         errbuf, sizeof(errbuf)) < 0) {
+        fprintf(stderr, "%s\n", errbuf);
+        return -1;
+    }
+
+    return 0;
 }
 
 /*
  * display jobs with -o option
  */
 static void
-displayO (struct jobInfoEnt *job, struct jobInfoHead *jInfoH,
-             int options, int format, char *fieldName)
+displayO(struct jobInfoEnt *job, struct jobInfoHead *jInfoH,
+         int options, int format, char *fieldName)
 {
-    char *fName = "displayO";
-    struct submit *submitInfo;
     static char first = TRUE;
-    char *status;
-    char subtime[64], donetime[64];
-    static char  *exechostfmt;
-    static struct loadIndexLog *loadIndex = NULL;
-    char *exec_host = "";
-    char *jobName, *pos;
-    NAMELIST  *hostList = NULL;
-    char tmpBuf[MAXLINELEN];
-    char osUserName[MAXLINELEN];
+    struct fmt_request request;
+    struct bjobs_fmt_record record;
+    char value[MAXLINELEN];
+    int i;
 
-    int                 i = 0;
-
-    char *customizedFields[FIELD_INDEX];
-    char *customizedField;
-    char header[MAXLINELEN];
-    int j = 0;
-    int k = 0;
-    int verifiedField = 0;
-    char *delimiter = "";
-
-    // TODO take field split out as a separate function
-    customizedField = strtok(fieldName, " ");
-
-    while (customizedField != NULL) {
-        customizedFields[j] = string_upper(customizedField);
-
-        verifiedField = 0;
-        for (k=0; k<FIELD_INDEX; k++) {
-            if ( strcmp(customizedFields[j], fields[k]) == 0 ) {
-                verifiedField = 1;
-                break;
-            }
-        }
-
-        if (verifiedField == 0) {
-//            fprintf(stderr, "Invalid field specs %s\n", customizedField);
-            fprintf(stderr, "<%s> in the format string is not a valid field name.\n", customizedField);
-            exit(99);
-        }
-
-        sprintf(tmpBuf, "%s%s", delimiter, customizedFields[j]);
-        strcat(header, tmpBuf);
-        delimiter = " ";
-
-        j++;
-        customizedField = strtok(NULL, " ");
-
-    }
-    strcat(header, "\n");
-
-
-    if (getOSUserName_(job->user, osUserName, MAXLINELEN) != 0) {
-        strncpy(osUserName, job->user, MAXLINELEN);
-        osUserName[MAXLINELEN - 1] = '\0';
-    }
-
-    if (lsbParams[LSB_SHORT_HOSTLIST].paramValue && job->numExHosts > 1
-        && strcmp(lsbParams[LSB_SHORT_HOSTLIST].paramValue, "1") == 0 ) {
-        hostList = lsb_compressStrList(job->exHosts, job->numExHosts);
-        if (!hostList) {
-
-            exit(99);
-        }
-    }
-
-
-    if (loadIndex == NULL)
-        loadIndex = initLoadIndex();
-
-    submitInfo = &job->submit;
-    status = get_status(job);
-
-    strcpy(subtime, _i18n_ctime( ls_catd, CTIME_FORMAT_b_d_H_M, &job->submitTime));
-    if (IS_FINISH (job->status))
-        strcpy(donetime, _i18n_ctime( ls_catd, CTIME_FORMAT_b_d_H_M, &(job->endTime)));
-    else
-        strcpy(donetime, "      ");
-
-    if (IS_PEND(job->status))
-        exec_host = "-";
-    else if ( job->numExHosts == 0)
-        exec_host = "   -   ";
-    else
-    {
-
-        if (lsbParams[LSB_SHORT_HOSTLIST].paramValue && job->numExHosts > 1
-            && strcmp(lsbParams[LSB_SHORT_HOSTLIST].paramValue, "1") == 0 ) {
-            sprintf(tmpBuf, "%d*%s", hostList->counter[0], hostList->names[0]);
-            exec_host = tmpBuf;
-        }
-        else
-            exec_host = job->exHosts[0];
-    }
+    if (bjobs_parse_fmt_request(fieldName, &request) < 0)
+        exit(99);
 
     if (first) {
         first = FALSE;
-        printf((_i18n_msg_get(ls_catd,NL_SETN,1461, header))); /* catgets  1461  */
+        fmt_output_print_header(stdout, &request);
     }
 
-    jobName = submitInfo->jobName;
-    if (LSB_ARRAY_IDX(job->jobId) && (pos = strchr(jobName, '['))) {
-        *pos = '\0';
-        sprintf(jobName, "%s[%d]", jobName, LSB_ARRAY_IDX(job->jobId));
+    bjobs_prepare_fmt_record(job, &record);
+
+    for (i = 0; i < request.num_columns; i++) {
+        bjobs_get_fmt_value(&record, request.columns[i].field->name,
+                            value, sizeof(value));
+        fmt_output_print_value(stdout, &request, i, value);
     }
-
-    delimiter = "";
-    for( j=0 ; j<FIELD_INDEX && customizedFields[j] != NULL && strlen(customizedFields[j]) > 0; j++ ){
-        if ( j > 0) {
-            delimiter = " ";
-        }
-
-        if ( strcmp(customizedFields[j], "JOBID") == 0 ) {
-            printf("%s%d", delimiter, LSB_ARRAY_JOBID(job->jobId));
-            continue;
-        }
-        if ( strcmp(customizedFields[j], "USER") == 0 ) {
-            printf("%s%s", delimiter,  osUserName);
-            continue;
-        }
-        if ( strcmp(customizedFields[j], "STAT") == 0 ) {
-            printf("%s%s", delimiter,  status);
-            continue;
-        }
-        if ( strcmp(customizedFields[j], "QUEUE") == 0 ) {
-            printf("%s%s", delimiter,  submitInfo->queue);
-            continue;
-        }
-        if ( strcmp(customizedFields[j], "FROM_HOST") == 0 ) {
-            printf("%s%s", delimiter,  job->fromHost);
-            continue;
-        }
-        if ( strcmp(customizedFields[j], "EXEC_HOST") == 0 ) {
-            printf("%s%s", delimiter,  exec_host);
-            continue;
-        }
-        if ( strcmp(customizedFields[j], "JOB_NAME") == 0 ) {
-            printf("%s%s", delimiter,  jobName);
-            continue;
-        }
-        if ( strcmp(customizedFields[j], "SUBMIT_TIME") == 0 ) {
-            printf("%s%s", delimiter,  subtime);
-            continue;
-        }
-        if ( strcmp(customizedFields[j], "PROJ_NAME") == 0 ) {
-            printf("%s%s", delimiter,  job->submit.projectName);
-            continue;
-        }
-        if ( strcmp(customizedFields[j], "CPU_USED") == 0 ) {
-            float cpuTime=0;
-
-            if (job->cpuTime > 0) {
-                cpuTime = job->cpuTime;
-            }
-            else {
-                cpuTime = job->runRusage.utime + job->runRusage.stime;
-            }
-            printf("%s%s", delimiter,  Timer2String(cpuTime));
-            continue;
-        }
-        if ( strcmp(customizedFields[j], "MEM") == 0 ) {
-            printf("%s%d", delimiter,  ((job->runRusage.mem >0)?job->runRusage.mem :0));
-            continue;
-        }
-        if ( strcmp(customizedFields[j], "SWAP") == 0 ) {
-            printf("%s%d", delimiter,  ((job->runRusage.swap>0)?job->runRusage.swap:0));
-            continue;
-        }
-
-        if ( strcmp(customizedFields[j], "PIDS") == 0 ) {
-            if (job->runRusage.npids) {
-                printf("%s", delimiter);
-                for (i = 0; i < job->runRusage.npids; i++) {
-                    if (i == 0) {
-                        printf("%d",job->runRusage.pidInfo[i].pid);
-                    } else {
-                        printf(",%d",job->runRusage.pidInfo[i].pid);
-                    }
-                }
-            } else {
-                printf("%s-", delimiter);
-            }
-            continue;
-        }
-        if ( strcmp(customizedFields[j], "START_TIME") == 0 ) {
-            if (job->startTime == 0)
-                printf("%s-", delimiter);
-            else
-                printf("%s%s", delimiter,Time2String(job->startTime));
-            continue;
-        }
-        if ( strcmp(customizedFields[j], "FINISH_TIME") == 0 ) {
-            if (job->endTime == 0) {
-                printf("%s-", delimiter);
-            } else {
-                printf("%s%s", delimiter, Time2String(job->endTime));
-            }
-            continue;
-        }
-    }
-    printf("\n");
-
-    return;
+    fmt_output_print_eol(stdout);
+    fmt_output_free(&request);
 }
 
 /*
  * display jobs in json format, in conjunction with -o option.
  */
 cJSON
-*displayJson (struct jobInfoEnt *job, struct jobInfoHead *jInfoH,
-        int options, int format, char *fieldName)
+*displayJson(struct jobInfoEnt *job, struct jobInfoHead *jInfoH,
+             int options, int format, char *fieldName)
 {
-    char *fName = "displayJson";
-    struct submit *submitInfo;
-    static char first = TRUE;
-    char *status;
-    char subtime[64], donetime[64];
-    static char  *exechostfmt;
-    static struct loadIndexLog *loadIndex = NULL;
-    char *exec_host = "";
-    char *jobName, *pos;
-    NAMELIST  *hostList = NULL;
-    char tmpBuf[MAXLINELEN];
-    char osUserName[MAXLINELEN];
-
-
-    int                 i = 0;
-
-    char *customizedFields[FIELD_INDEX];
-    char *customizedField;
-    char *customizedFieldUpper;
-    int j = 0;
-    int k = 0;
-    int l;
-    int verifiedField = 0;
-    int duplicatedField = 0;
-    char jobIdStr[MAXLINELEN];
-    char jobMemStr[MAXLINELEN];
-    char jobSwapStr[MAXLINELEN];
-
+    struct fmt_request request;
+    struct bjobs_fmt_record record;
+    char value[MAXLINELEN];
+    int i, j;
     cJSON *jobItem = cJSON_CreateObject();
 
-    // TODO take field split out as a separate function
-    customizedField = strtok(fieldName, " ");
+    if (bjobs_parse_fmt_request(fieldName, &request) < 0)
+        exit(99);
 
-    while (customizedField != NULL) {
-        customizedFieldUpper = string_upper(customizedField);
-        duplicatedField = 0;
-        for( l=0 ; l < j; l++ ){
-            if ( strcmp(customizedFields[l], customizedFieldUpper) == 0 ) {
-                duplicatedField = 1;
+    bjobs_prepare_fmt_record(job, &record);
+
+    for (i = 0; i < request.num_columns; i++) {
+        int duplicatedField = FALSE;
+
+        for (j = 0; j < i; j++) {
+            if (strcmp(request.columns[j].field->name,
+                       request.columns[i].field->name) == 0) {
+                duplicatedField = TRUE;
                 break;
             }
         }
-
-        if (duplicatedField == 1) {
-            customizedField = strtok(NULL, " ");
+        if (duplicatedField)
             continue;
-        }
 
-        customizedFields[j] = customizedFieldUpper;
-
-        verifiedField = 0;
-        for (k=0; k<FIELD_INDEX; k++) {
-            if ( strcmp(customizedFields[j], fields[k]) == 0 ) {
-                verifiedField = 1;
-                break;
-            }
-        }
-
-        if (verifiedField == 0) {
-//            fprintf(stderr, "Invalid field specs %s\n", customizedField);
-            fprintf(stderr, "<%s> in the format string is not a valid field name.\n", customizedField);
-            exit(99);
-        }
-
-        j++;
-        customizedField = strtok(NULL, " ");
-
+        bjobs_get_fmt_value(&record, request.columns[i].field->name,
+                            value, sizeof(value));
+        cJSON_AddStringToObject(jobItem, request.columns[i].field->name, value);
     }
 
-
-    if (getOSUserName_(job->user, osUserName, MAXLINELEN) != 0) {
-        strncpy(osUserName, job->user, MAXLINELEN);
-        osUserName[MAXLINELEN - 1] = '\0';
-    }
-
-    if (lsbParams[LSB_SHORT_HOSTLIST].paramValue && job->numExHosts > 1
-        && strcmp(lsbParams[LSB_SHORT_HOSTLIST].paramValue, "1") == 0 ) {
-        hostList = lsb_compressStrList(job->exHosts, job->numExHosts);
-        if (!hostList) {
-
-            exit(99);
-        }
-    }
-
-
-    if (loadIndex == NULL)
-        loadIndex = initLoadIndex();
-
-    submitInfo = &job->submit;
-    status = get_status(job);
-
-    strcpy(subtime, _i18n_ctime( ls_catd, CTIME_FORMAT_b_d_H_M, &job->submitTime));
-    if (IS_FINISH (job->status))
-        strcpy(donetime, _i18n_ctime( ls_catd, CTIME_FORMAT_b_d_H_M, &(job->endTime)));
-    else
-        strcpy(donetime, "      ");
-
-    if (IS_PEND(job->status))
-        exec_host = "";
-    else if ( job->numExHosts == 0)
-        exec_host = "   -   ";
-    else
-    {
-
-        if (lsbParams[LSB_SHORT_HOSTLIST].paramValue && job->numExHosts > 1
-            && strcmp(lsbParams[LSB_SHORT_HOSTLIST].paramValue, "1") == 0 ) {
-            sprintf(tmpBuf, "%d*%s", hostList->counter[0], hostList->names[0]);
-            exec_host = tmpBuf;
-        }
-        else
-            exec_host = job->exHosts[0];
-    }
-
-    jobName = submitInfo->jobName;
-    if (LSB_ARRAY_IDX(job->jobId) && (pos = strchr(jobName, '['))) {
-        *pos = '\0';
-        sprintf(jobName, "%s[%d]", jobName, LSB_ARRAY_IDX(job->jobId));
-    }
-
-    for( j=0 ; j<FIELD_INDEX && customizedFields[j] != NULL && strlen(customizedFields[j]) > 0; j++ ){
-
-        if ( strcmp(customizedFields[j], "JOBID") == 0 ) {
-            sprintf(jobIdStr, "%d", LSB_ARRAY_JOBID(job->jobId));
-            cJSON_AddStringToObject(jobItem, "JOBID", jobIdStr);
-            continue;
-        }
-
-        if ( strcmp(customizedFields[j], "USER") == 0 ) {
-            cJSON_AddStringToObject(jobItem, "USER", osUserName);
-            continue;
-        }
-
-        if ( strcmp(customizedFields[j], "STAT") == 0 ) {
-            cJSON_AddStringToObject(jobItem, "STAT", status);
-            continue;
-        }
-
-        if ( strcmp(customizedFields[j], "QUEUE") == 0 ) {
-            cJSON_AddStringToObject(jobItem, "QUEUE", submitInfo->queue);
-            continue;
-        }
-
-        if ( strcmp(customizedFields[j], "FROM_HOST") == 0 ) {
-            cJSON_AddStringToObject(jobItem, "FROM_HOST", job->fromHost);
-            continue;
-        }
-
-        if ( strcmp(customizedFields[j], "EXEC_HOST") == 0 ) {
-            cJSON_AddStringToObject(jobItem, "EXEC_HOST", exec_host);
-            continue;
-        }
-
-        if ( strcmp(customizedFields[j], "JOB_NAME") == 0 ) {
-            cJSON_AddStringToObject(jobItem, "JOB_NAME", jobName);
-            continue;
-        }
-
-        if ( strcmp(customizedFields[j], "SUBMIT_TIME") == 0 ) {
-            cJSON_AddStringToObject(jobItem, "SUBMIT_TIME", subtime);
-            continue;
-        }
-
-        if ( strcmp(customizedFields[j], "PROJ_NAME") == 0 ) {
-            cJSON_AddStringToObject(jobItem, "PROJ_NAME", job->submit.projectName);
-            continue;
-        }
-
-        if ( strcmp(customizedFields[j], "CPU_USED") == 0 ) {
-            float cpuTime=0;
-
-            if (job->cpuTime > 0) {
-                cpuTime = job->cpuTime;
-            }
-            else {
-                cpuTime = job->runRusage.utime + job->runRusage.stime;
-            }
-            cJSON_AddStringToObject(jobItem, "CPU_USED", Timer2String(cpuTime));
-            continue;
-        }
-
-        if ( strcmp(customizedFields[j], "MEM") == 0 ) {
-            sprintf(jobMemStr, "%d", ((job->runRusage.mem >0)?job->runRusage.mem :0));
-            cJSON_AddStringToObject(jobItem, "MEM", jobMemStr);
-            continue;
-        }
-
-        if ( strcmp(customizedFields[j], "SWAP") == 0 ) {
-            sprintf(jobSwapStr, "%d", ((job->runRusage.swap>0)?job->runRusage.swap:0));
-            cJSON_AddStringToObject(jobItem, "SWAP", jobSwapStr);
-            continue;
-        }
-
-        if ( strcmp(customizedFields[j], "PIDS") == 0 ) {
-            char pids[MAXLINELEN];
-
-            if (job->runRusage.npids) {
-                for (i = 0; i < job->runRusage.npids; i++) {
-                    if (i == 0) {
-                        sprintf(tmpBuf, "%d", job->runRusage.pidInfo[i].pid);
-                        strcat(pids, tmpBuf);
-                    } else {
-                        sprintf(tmpBuf, ",%d", job->runRusage.pidInfo[i].pid);
-                        strcat(pids, tmpBuf);
-                    }
-                }
-                cJSON_AddStringToObject(jobItem, "PIDS", pids);
-            } else {
-                cJSON_AddStringToObject(jobItem, "PIDS", "-");
-            }
-            continue;
-        }
-
-        if ( strcmp(customizedFields[j], "START_TIME") == 0 ) {
-            if (job->startTime == 0)
-                cJSON_AddStringToObject(jobItem, "START_TIME", "-");
-            else
-                cJSON_AddStringToObject(jobItem, "START_TIME", Time2String(job->startTime));
-            continue;
-        }
-
-        if ( strcmp(customizedFields[j], "FINISH_TIME") == 0 ) {
-            if (job->endTime == 0) {
-                cJSON_AddStringToObject(jobItem, "FINISH_TIME", "-");
-            } else {
-                cJSON_AddStringToObject(jobItem, "FINISH_TIME", Time2String(job->endTime));
-            }
-            continue;
-        }
-    }
-
+    fmt_output_free(&request);
     return jobItem;
 }
 
