@@ -1550,6 +1550,7 @@ extern void updateClusterConf(struct clusterConf *);
 
 
 extern int lsb_init P_((char *appName));
+extern int lsb_set_custom_output_fields P_((const char *));
 extern int lsb_openjobinfo P_((LS_LONG_INT, char *, char *, char *, char *,
 			       int));
 extern struct jobInfoHead *lsb_openjobinfo_a P_((LS_LONG_INT, char *,char *,

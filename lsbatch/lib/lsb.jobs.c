@@ -153,6 +153,7 @@ lsb_openjobinfo_a (LS_LONG_INT jobId, char *jobName, char *userName,
 	return(NULL);
     }
     jobInfoReq.jobId = jobId;
+    jobInfoReq.outputFields = lsb_get_custom_output_fields_();
 
 
     mbdReqtype = BATCH_JOB_INFO;

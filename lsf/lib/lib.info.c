@@ -630,6 +630,7 @@ ls_gethostinfo(char *resReq, int *numhosts, char **hostlist, int listsize,
 
     hostInfoReply.shortLsInfo = &lsInfo;
     hostInfoReq.numHosts=0;
+    hostInfoReq.outputFields = ls_get_custom_output_fields_();
     cc = callLim_(LIM_GET_HOSTINFO,
                   &hostInfoReq,
                   xdr_decisionReq,
@@ -800,4 +801,3 @@ ls_sharedresourceinfo(char **resources, int *numResources, char *hostName, int o
     return (resourceInfoReply.resources);
 
 }
-

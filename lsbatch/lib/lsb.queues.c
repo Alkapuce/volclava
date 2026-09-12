@@ -124,13 +124,14 @@ lsb_queueinfo (char **queues, int *numQueues, char *hosts, char *users, int opti
             clusterName = hosts;
     }
     queueInfoReq.resReq = "";
+    queueInfoReq.outputFields = lsb_get_custom_output_fields_();
 
     
 
     
 
     mbdReqtype = BATCH_QUE_INFO;
-    cc = sizeof(struct infoReq) + cc * MAXHOSTNAMELEN + cc + 100;
+    cc = sizeof(struct infoReq) + cc * MAXHOSTNAMELEN + cc + MAXLINELEN + 100;
     if ((request_buf = malloc (cc)) == NULL) {
         lsberrno = LSBE_NO_MEM;
         return(NULL);
@@ -196,4 +197,3 @@ lsb_queueinfo (char **queues, int *numQueues, char *hosts, char *users, int opti
     return(NULL);
 
 } 
-
