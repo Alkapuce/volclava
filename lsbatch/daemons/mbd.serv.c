@@ -505,19 +505,25 @@ do_jobInfoReq(XDR *xdrs,
     if (logclass & (LC_TRACE | LC_COMM))
         ls_syslog(LOG_DEBUG, "%s: Entering this routine...; channel=%d", fname,chfd);
 
+    memset(&jobInfoReq, 0, sizeof(struct jobInfoReq));
     jobInfoHead.hostNames = NULL;
     jobInfoHead.jobIds  = NULL;
 
     if (!xdr_jobInfoReq(xdrs, &jobInfoReq, reqHdr)) {
         reply = LSBE_XDR;
         ls_syslog(LOG_ERR, I18N_FUNC_FAIL, fname, "xdr_jobInfoReq");
-    }
-    if (jobInfoReq.host[0] != '\0'
-        && getHGrpData(jobInfoReq.host) == NULL
-        && !Gethostbyname_(jobInfoReq.host)
-        && (strcmp(jobInfoReq.host, LOST_AND_FOUND) != 0))
+    } else if (jobInfoReq.host[0] != '\0'
+               && getHGrpData(jobInfoReq.host) == NULL
+               && !Gethostbyname_(jobInfoReq.host)
+               && (strcmp(jobInfoReq.host, LOST_AND_FOUND) != 0))
         reply = LSBE_BAD_HOST;
     else {
+        if ((logclass & (LC_TRACE | LC_COMM))
+            && jobInfoReq.outputFields != NULL
+            && jobInfoReq.outputFields[0] != '\0') {
+            ls_syslog(LOG_DEBUG, "%s: custom output fields: %s",
+                      fname, jobInfoReq.outputFields);
+        }
         syncJobInfoReq = jobInfoReq;
         if (isQmbd)
             syncMode = qmbdJobSyncMode;
@@ -1739,24 +1745,30 @@ do_hostInfoReq(XDR *xdrs,
 
     replyStruct = NULL;
     memset(&hostsReply, 0, sizeof(struct hostDataReply));
+    memset(&hostsReq, 0, sizeof(struct infoReq));
 
     if (!xdr_infoReq(xdrs, &hostsReq, reqHdr)) {
         reply = LSBE_XDR;
         ls_syslog(LOG_ERR, "\
-%s: failed decode request from %s", __func__, sockAdd2Str_(from));
-        goto out;
+	%s: failed decode request from %s", __func__, sockAdd2Str_(from));
+        count = 100;
+    } else {
+        if ((logclass & (LC_TRACE | LC_COMM))
+            && hostsReq.outputFields != NULL
+            && hostsReq.outputFields[0] != '\0') {
+            ls_syslog(LOG_DEBUG, "%s: custom output fields: %s",
+                      __func__, hostsReq.outputFields);
+        }
+
+        reply = checkHosts(&hostsReq, &hostsReply);
+
+        count = hostsReply.numHosts * (sizeof(struct hostInfoEnt)
+                                       + MAXLINELEN*2 + MAXHOSTNAMELEN
+                                       + hostsReply.nIdx * 4 * sizeof(float)) + 100;
     }
-
-    reply = checkHosts(&hostsReq, &hostsReply);
-
-    count = hostsReply.numHosts * (sizeof(struct hostInfoEnt)
-                                   + MAXLINELEN*2 + MAXHOSTNAMELEN
-                                   + hostsReply.nIdx * 4 * sizeof(float)) + 100;
 
     reply_buf = my_calloc(count, sizeof(char), __func__);
     xdrmem_create(&xdrs2, reply_buf, count, XDR_ENCODE);
-
-out:
 
     xdr_lsffree(xdr_infoReq, (char *)&hostsReq, reqHdr);
     initLSFHeader_(&replyHdr);
@@ -1899,6 +1911,7 @@ do_queueInfoReq(XDR *xdrs,
      * valgrind output.
      */
     memset(&qInfoReply, 0, sizeof(struct queueInfoReply));
+    memset(&qInfoReq, 0, sizeof(struct infoReq));
 
     qInfoReply.numQueues = 0;
     qInfoReply.queues = my_calloc(numofqueues,
@@ -1911,6 +1924,12 @@ do_queueInfoReq(XDR *xdrs,
         reply = LSBE_XDR;
         len =  100; /* ? */
     } else {
+        if ((logclass & (LC_TRACE | LC_COMM))
+            && qInfoReq.outputFields != NULL
+            && qInfoReq.outputFields[0] != '\0') {
+            ls_syslog(LOG_DEBUG, "%s: custom output fields: %s",
+                      __func__, qInfoReq.outputFields);
+        }
         reply = checkQueues(&qInfoReq, &qInfoReply);
         len = sizeof(struct LSFHeader);
         len += xdrsize_QueueInfoReply(&qInfoReply);
