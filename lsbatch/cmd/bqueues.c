@@ -20,10 +20,12 @@
  */
 
 #include "cmd.h"
+#include "../../lsf/intlib/fmt_output.h"
 
 void load2Str();
 static void prtQueuesLong (int, struct queueInfoEnt *);
 static void prtQueuesShort (int, struct queueInfoEnt *);
+static void prtQueuesO(int, struct queueInfoEnt *, char *);
 static void printShareAcctTree(struct shareAcctInfoEnt *, char *);
 static void prtShareAcctHeader();
 static void prtShareAcct(struct shareAcctInfoEnt *);
@@ -31,6 +33,7 @@ static void prtShareAcct(struct shareAcctInfoEnt *);
 static char wflag = FALSE;
 static char lflag = FALSE;
 static char rflag = FALSE;
+static char oflag = FALSE;
 extern int terminateWhen_(int *, char *);
 
 #define QUEUE_NAME_LENGTH    15
@@ -57,10 +60,51 @@ extern int terminateWhen_(int *, char *);
 
 static char fomt[200];
 
+static const struct fmt_field_def bqueues_fields[] = {
+    {"QUEUE_NAME", "QNAME", "QUEUE_NAME", QUEUE_NAME_LENGTH},
+    {"DESCRIPTION", "DESC", "DESCRIPTION", 20},
+    {"PRIORITY", "PRIO", "PRIORITY", 8},
+    {"STATUS", "STAT", "STATUS", QUEUE_STATUS_LENGTH},
+    {"MAX", NULL, "MAX", QUEUE_MAX_LENGTH},
+    {"JL_U", "JLU", "JL/U", QUEUE_JL_U_LENGTH},
+    {"JL_P", "JLP", "JL/P", QUEUE_JL_P_LENGTH},
+    {"JL_H", "JLH", "JL/H", QUEUE_JL_H_LENGTH},
+    {"NJOBS", NULL, "NJOBS", QUEUE_NJOBS_LENGTH},
+    {"PEND", NULL, "PEND", QUEUE_PEND_LENGTH},
+    {"RUN", NULL, "RUN", QUEUE_RUN_LENGTH},
+    {"SUSP", NULL, "SUSP", QUEUE_SUSP_LENGTH},
+    {"RSV", NULL, "RSV", QUEUE_RSV_LENGTH},
+    {"USUSP", NULL, "USUSP", QUEUE_USUSP_LENGTH},
+    {"SSUSP", NULL, "SSUSP", QUEUE_SSUSP_LENGTH},
+    {"NICE", NULL, "NICE", QUEUE_NICE_LENGTH},
+    {"HOSTS", NULL, "HOSTS", 20},
+    {"RES_REQ", NULL, "RES_REQ", 20},
+    {"MAX_CORELIMIT", "CORELIMIT", "MAX_CORELIMIT", 13},
+    {"MAX_CPULIMIT", "CPULIMIT", "MAX_CPULIMIT", 12},
+    {"DEFAULT_CPULIMIT", "DEF_CPULIMIT", "DEFAULT_CPULIMIT", 16},
+    {"MAX_DATALIMIT", "DATALIMIT", "MAX_DATALIMIT", 13},
+    {"DEFAULT_DATALIMIT", "DEF_DATALIMIT", "DEFAULT_DATALIMIT", 17},
+    {"MAX_FILELIMIT", "FILELIMIT", "MAX_FILELIMIT", 13},
+    {"MAX_MEMLIMIT", "MEMLIMIT", "MAX_MEMLIMIT", 12},
+    {"DEFAULT_MEMLIMIT", "DEF_MEMLIMIT", "DEFAULT_MEMLIMIT", 16},
+    {"MAX_PROCESSLIMIT", "PROCESSLIMIT", "MAX_PROCESSLIMIT", 16},
+    {"DEFAULT_PROCESSLIMIT", "DEF_PROCESSLIMIT", "DEFAULT_PROCESSLIMIT", 20},
+    {"MAX_STACKLIMIT", "STACKLIMIT", "MAX_STACKLIMIT", 14},
+    {"MAX_SWAPLIMIT", "SWAPLIMIT", "MAX_SWAPLIMIT", 13},
+    {"MAX_TASKLIMIT", "TASKLIMIT", "MAX_TASKLIMIT", 13},
+    {"MIN_TASKLIMIT", NULL, "MIN_TASKLIMIT", 13},
+    {"DEFAULT_TASKLIMIT", "DEF_TASKLIMIT", "DEFAULT_TASKLIMIT", 17},
+    {"MAX_THREADLIMIT", "THREADLIMIT", "MAX_THREADLIMIT", 15},
+    {"DEFAULT_THREADLIMIT", "DEF_THREADLIMIT", "DEFAULT_THREADLIMIT", 19}
+};
+
+#define BQUEUES_NUM_FIELDS \
+    ((int)(sizeof(bqueues_fields) / sizeof(bqueues_fields[0])))
+
 void
 usage (char *cmd)
 {
-     fprintf(stderr, "%s: %s [-h] [-V] [-w | -l | -r] [-m host_name | -m cluster_name]\n", I18N_Usage, cmd);
+     fprintf(stderr, "%s: %s [-h] [-V] [-w | -l | -r | -o output_format] [-m host_name | -m cluster_name]\n", I18N_Usage, cmd);
 
     if (lsbMode_ & LSB_MODE_BATCH)
         fprintf(stderr, " [-u user_name]");
@@ -76,8 +120,14 @@ main(int argc, char **argv)
     struct queueInfoEnt *queueInfo;
     int cc, defaultQ = FALSE;
     char *host = NULL, *user = NULL;
+    char *fieldName = NULL;
+    struct fmt_request formatCheck;
+    char fmtErrbuf[MAXLINELEN];
+    char outputFields[MAXLINELEN];
+    int outputFieldsLen = 0;
 
     numQueues = 0;
+    outputFields[0] = '\0';
 
     _i18n_init ( I18N_CAT_MIN );
 
@@ -86,16 +136,16 @@ main(int argc, char **argv)
         exit(-1);
     }
 
-    while ((cc = getopt(argc, argv, "Vhlwrm:u:")) != EOF) {
+    while ((cc = getopt(argc, argv, "Vhlwrm:u:o:")) != EOF) {
         switch (cc) {
             case 'l':
                 lflag = TRUE;
-                if (wflag || rflag)
+                if (wflag || rflag || oflag)
                     usage(argv[0]);
                 break;
             case 'w':
                 wflag = TRUE;
-                if (lflag || rflag)
+                if (lflag || rflag || oflag)
                     usage(argv[0]);
                 break;
             case 'm':
@@ -110,8 +160,14 @@ main(int argc, char **argv)
                 break;
             case 'r':
                 rflag = TRUE;
-                if (lflag || wflag)
+                if (lflag || wflag || oflag)
                     usage(argv[0]);
+                break;
+            case 'o':
+                if (oflag || lflag || wflag || rflag || *optarg == '\0')
+                    usage(argv[0]);
+                oflag = TRUE;
+                fieldName = optarg;
                 break;
             case 'V':
                 fputs(_LS_VERSION_, stdout);
@@ -120,6 +176,22 @@ main(int argc, char **argv)
             default:
                 usage(argv[0]);
         }
+    }
+    if (oflag) {
+        if (fmt_output_parse(fieldName, bqueues_fields, BQUEUES_NUM_FIELDS,
+                             &formatCheck, fmtErrbuf, sizeof(fmtErrbuf)) < 0) {
+            fprintf(stderr, "%s\n", fmtErrbuf);
+            exit(99);
+        }
+        outputFieldsLen = fmt_output_fields_string(&formatCheck,
+                                                   outputFields,
+                                                   sizeof(outputFields));
+        if (outputFieldsLen < 0 || outputFieldsLen > sizeof(outputFields)) {
+            fprintf(stderr, "custom output field list is too long.\n");
+            fmt_output_free(&formatCheck);
+            exit(99);
+        }
+        fmt_output_free(&formatCheck);
     }
 
     numQueues = getNames(argc,
@@ -133,11 +205,17 @@ main(int argc, char **argv)
     else
         queues = NULL;
 
+    if (oflag && lsb_set_custom_output_fields(outputFields) < 0) {
+        lsb_perror("lsb_set_custom_output_fields");
+        exit(-1);
+    }
     TIMEIT(0, (queueInfo = lsb_queueinfo(queues,
                                          &numQueues,
                                          host,
                                          user,
                                          0)), "lsb_queueinfo");
+    if (oflag)
+        lsb_set_custom_output_fields(NULL);
 
     if (!queueInfo) {
         if (lsberrno == LSBE_BAD_QUEUE && queues)
@@ -159,12 +237,177 @@ main(int argc, char **argv)
         return -1;
     }
 
-    if (lflag || rflag)
+    if (oflag)
+        prtQueuesO(numQueues, queueInfo, fieldName);
+    else if (lflag || rflag)
         prtQueuesLong(numQueues, queueInfo);
     else
         prtQueuesShort(numQueues, queueInfo);
 
     return 0;
+}
+
+static char *
+bqueues_clean_string(char *value)
+{
+    if (!value || value[0] == '\0' || strcmp(value, " ") == 0)
+        return "-";
+
+    return value;
+}
+
+static void
+bqueues_get_status(struct queueInfoEnt *queue, char *buf, size_t buflen)
+{
+    snprintf(buf, buflen, "%s:",
+             (queue->qStatus & QUEUE_STAT_OPEN) ? I18N_Open : I18N_Closed);
+
+    if (queue->qStatus & QUEUE_STAT_ACTIVE) {
+        if (queue->qStatus & QUEUE_STAT_RUN)
+            strncat(buf, I18N_Active, buflen - strlen(buf) - 1);
+        else
+            strncat(buf, I18N_Inact, buflen - strlen(buf) - 1);
+    } else {
+        strncat(buf, I18N_Inact, buflen - strlen(buf) - 1);
+    }
+}
+
+static void
+bqueues_format_int_limit(int value, int allow_zero, char *buf, size_t buflen)
+{
+    if ((allow_zero && value >= 0 && value < INFINIT_INT) ||
+        (!allow_zero && value > 0 && value < INFINIT_INT))
+        snprintf(buf, buflen, "%d", value);
+    else
+        snprintf(buf, buflen, "-");
+}
+
+static void
+bqueues_format_float_limit(float value, char *buf, size_t buflen)
+{
+    if (value < INFINIT_FLOAT)
+        snprintf(buf, buflen, "%.1f", value);
+    else
+        snprintf(buf, buflen, "-");
+}
+
+static void
+bqueues_get_fmt_value(struct queueInfoEnt *queue, const char *field,
+                      char *buf, size_t buflen)
+{
+    if (strcmp(field, "QUEUE_NAME") == 0) {
+        snprintf(buf, buflen, "%s", queue->queue);
+    } else if (strcmp(field, "DESCRIPTION") == 0) {
+        snprintf(buf, buflen, "%s", bqueues_clean_string(queue->description));
+    } else if (strcmp(field, "PRIORITY") == 0) {
+        snprintf(buf, buflen, "%d", queue->priority);
+    } else if (strcmp(field, "STATUS") == 0) {
+        bqueues_get_status(queue, buf, buflen);
+    } else if (strcmp(field, "MAX") == 0) {
+        bqueues_format_int_limit(queue->maxJobs, TRUE, buf, buflen);
+    } else if (strcmp(field, "JL_U") == 0) {
+        bqueues_format_int_limit(queue->userJobLimit, TRUE, buf, buflen);
+    } else if (strcmp(field, "JL_P") == 0) {
+        bqueues_format_float_limit(queue->procJobLimit, buf, buflen);
+    } else if (strcmp(field, "JL_H") == 0) {
+        bqueues_format_int_limit(queue->hostJobLimit, TRUE, buf, buflen);
+    } else if (strcmp(field, "NJOBS") == 0) {
+        snprintf(buf, buflen, "%d", queue->numJobs);
+    } else if (strcmp(field, "PEND") == 0) {
+        snprintf(buf, buflen, "%d", queue->numPEND);
+    } else if (strcmp(field, "RUN") == 0) {
+        snprintf(buf, buflen, "%d", queue->numRUN);
+    } else if (strcmp(field, "SUSP") == 0) {
+        snprintf(buf, buflen, "%d", queue->numSSUSP + queue->numUSUSP);
+    } else if (strcmp(field, "RSV") == 0) {
+        snprintf(buf, buflen, "%d", queue->numRESERVE);
+    } else if (strcmp(field, "USUSP") == 0) {
+        snprintf(buf, buflen, "%d", queue->numUSUSP);
+    } else if (strcmp(field, "SSUSP") == 0) {
+        snprintf(buf, buflen, "%d", queue->numSSUSP);
+    } else if (strcmp(field, "NICE") == 0) {
+        snprintf(buf, buflen, "%d", queue->nice);
+    } else if (strcmp(field, "HOSTS") == 0) {
+        snprintf(buf, buflen, "%s", bqueues_clean_string(queue->hostList));
+    } else if (strcmp(field, "RES_REQ") == 0) {
+        snprintf(buf, buflen, "%s", bqueues_clean_string(queue->resReq));
+    } else if (strcmp(field, "MAX_CORELIMIT") == 0) {
+        bqueues_format_int_limit(queue->rLimits[LSF_RLIMIT_CORE], TRUE,
+                                 buf, buflen);
+    } else if (strcmp(field, "MAX_CPULIMIT") == 0) {
+        bqueues_format_int_limit(queue->rLimits[LSF_RLIMIT_CPU], TRUE,
+                                 buf, buflen);
+    } else if (strcmp(field, "DEFAULT_CPULIMIT") == 0) {
+        bqueues_format_int_limit(queue->defLimits[LSF_RLIMIT_CPU], TRUE,
+                                 buf, buflen);
+    } else if (strcmp(field, "MAX_DATALIMIT") == 0) {
+        bqueues_format_int_limit(queue->rLimits[LSF_RLIMIT_DATA], FALSE,
+                                 buf, buflen);
+    } else if (strcmp(field, "DEFAULT_DATALIMIT") == 0) {
+        bqueues_format_int_limit(queue->defLimits[LSF_RLIMIT_DATA], FALSE,
+                                 buf, buflen);
+    } else if (strcmp(field, "MAX_FILELIMIT") == 0) {
+        bqueues_format_int_limit(queue->rLimits[LSF_RLIMIT_FSIZE], FALSE,
+                                 buf, buflen);
+    } else if (strcmp(field, "MAX_MEMLIMIT") == 0) {
+        bqueues_format_int_limit(queue->rLimits[LSF_RLIMIT_RSS], FALSE,
+                                 buf, buflen);
+    } else if (strcmp(field, "DEFAULT_MEMLIMIT") == 0) {
+        bqueues_format_int_limit(queue->defLimits[LSF_RLIMIT_RSS], FALSE,
+                                 buf, buflen);
+    } else if (strcmp(field, "MAX_PROCESSLIMIT") == 0) {
+        bqueues_format_int_limit(queue->rLimits[LSF_RLIMIT_PROCESS], FALSE,
+                                 buf, buflen);
+    } else if (strcmp(field, "DEFAULT_PROCESSLIMIT") == 0) {
+        bqueues_format_int_limit(queue->defLimits[LSF_RLIMIT_PROCESS],
+                                 FALSE, buf, buflen);
+    } else if (strcmp(field, "MAX_STACKLIMIT") == 0) {
+        bqueues_format_int_limit(queue->rLimits[LSF_RLIMIT_STACK], FALSE,
+                                 buf, buflen);
+    } else if (strcmp(field, "MAX_SWAPLIMIT") == 0) {
+        bqueues_format_int_limit(queue->rLimits[LSF_RLIMIT_SWAP], FALSE,
+                                 buf, buflen);
+    } else if (strcmp(field, "MAX_TASKLIMIT") == 0) {
+        bqueues_format_int_limit(queue->procLimit, FALSE, buf, buflen);
+    } else if (strcmp(field, "MIN_TASKLIMIT") == 0) {
+        bqueues_format_int_limit(queue->minProcLimit, FALSE, buf, buflen);
+    } else if (strcmp(field, "DEFAULT_TASKLIMIT") == 0) {
+        bqueues_format_int_limit(queue->defProcLimit, FALSE, buf, buflen);
+    } else if (strcmp(field, "MAX_THREADLIMIT") == 0) {
+        snprintf(buf, buflen, "-");
+    } else if (strcmp(field, "DEFAULT_THREADLIMIT") == 0) {
+        snprintf(buf, buflen, "-");
+    } else {
+        snprintf(buf, buflen, "-");
+    }
+}
+
+static void
+prtQueuesO(int numQueues, struct queueInfoEnt *queueInfo, char *fieldName)
+{
+    struct fmt_request request;
+    char errbuf[MAXLINELEN];
+    char value[MAXLINELEN];
+    int i, j;
+
+    if (fmt_output_parse(fieldName, bqueues_fields, BQUEUES_NUM_FIELDS,
+                         &request, errbuf, sizeof(errbuf)) < 0) {
+        fprintf(stderr, "%s\n", errbuf);
+        exit(99);
+    }
+
+    fmt_output_print_header(stdout, &request);
+    for (i = 0; i < numQueues; i++) {
+        for (j = 0; j < request.num_columns; j++) {
+            bqueues_get_fmt_value(&queueInfo[i],
+                                  request.columns[j].field->name,
+                                  value, sizeof(value));
+            fmt_output_print_value(stdout, &request, j, value);
+        }
+        fmt_output_print_eol(stdout);
+    }
+
+    fmt_output_free(&request);
 }
 
 static void
