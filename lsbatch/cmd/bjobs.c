@@ -62,22 +62,22 @@ int jsonflag = FALSE;
 
 static const struct fmt_field_def bjobs_fields[] = {
     {"JOBID", "ID", "JOBID", 7},
-    {"JOB_IDX", NULL, "JOB_IDX", 7},
-    {"USER", NULL, "USER", 8},
+    {"JOB_IDX", NULL, "JOB_IDX", 8},
+    {"USER", NULL, "USER", 7},
     {"STAT", NULL, "STAT", 5},
     {"QUEUE", NULL, "QUEUE", 10},
-    {"FROM_HOST", NULL, "FROM_HOST", 12},
-    {"EXEC_HOST", NULL, "EXEC_HOST", 12},
-    {"JOB_NAME", "NAME", "JOB_NAME", 12},
-    {"SUBMIT_TIME", NULL, "SUBMIT_TIME", 12},
-    {"PROJ_NAME", NULL, "PROJ_NAME", 12},
+    {"FROM_HOST", NULL, "FROM_HOST", 11},
+    {"EXEC_HOST", NULL, "EXEC_HOST", 11},
+    {"JOB_NAME", "NAME", "JOB_NAME", 10},
+    {"SUBMIT_TIME", NULL, "SUBMIT_TIME", 15},
+    {"PROJ_NAME", NULL, "PROJ_NAME", 11},
     {"CPU_USED", NULL, "CPU_USED", 10},
-    {"MEM", NULL, "MEM", 8},
-    {"SWAP", NULL, "SWAP", 8},
-    {"PIDS", NULL, "PIDS", 12},
-    {"START_TIME", NULL, "START_TIME", 20},
-    {"FINISH_TIME", NULL, "FINISH_TIME", 20},
-    {"EXIT_CODE", NULL, "EXIT_CODE", 9}
+    {"MEM", NULL, "MEM", 15},
+    {"SWAP", NULL, "SWAP", 15},
+    {"PIDS", NULL, "PIDS", 20},
+    {"START_TIME", NULL, "START_TIME", 15},
+    {"FINISH_TIME", NULL, "FINISH_TIME", 16},
+    {"EXIT_CODE", NULL, "EXIT_CODE", 10}
 };
 
 #define BJOBS_NUM_FIELDS \

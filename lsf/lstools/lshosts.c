@@ -70,18 +70,18 @@ struct indexFmt fmt1[] = {
 }, *fmt;
 
 static const struct fmt_field_def lshosts_fields[] = {
-    {"HOST_NAME", "HNAME", "HOST_NAME", 11},
-    {"TYPE", NULL, "type", 7},
-    {"MODEL", NULL, "model", 8},
-    {"CPUF", NULL, "cpuf", 5},
-    {"NCPUS", NULL, "ncpus", 5},
-    {"MAXMEM", NULL, "maxmem", 8},
-    {"MAXSWP", NULL, "maxswp", 8},
-    {"SERVER", NULL, "server", 6},
-    {"RESOURCES", "RES", "RESOURCES", 12},
-    {"MAXTMP", NULL, "maxtmp", 8},
-    {"NPROCS", NULL, "nprocs", 6},
-    {"RUN_WINDOWS", "RUNWIN", "RUN_WINDOWS", 14}
+    {"HOST_NAME", "HNAME", "HOST_NAME", 20},
+    {"TYPE", NULL, "type", 10},
+    {"MODEL", NULL, "model", 10},
+    {"CPUF", NULL, "cpuf", 10},
+    {"NCPUS", NULL, "ncpus", 8},
+    {"MAXMEM", NULL, "maxmem", 10},
+    {"MAXSWP", NULL, "maxswp", 10},
+    {"SERVER", NULL, "server", 10},
+    {"RESOURCES", "RES", "RESOURCES", 20},
+    {"MAXTMP", NULL, "maxtmp", 10},
+    {"NPROCS", NULL, "nprocs", 8},
+    {"RUN_WINDOWS", "RUNWIN", "RUN_WINDOWS", 20}
 };
 
 #define LSHOSTS_NUM_FIELDS \

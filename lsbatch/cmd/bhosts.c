@@ -117,19 +117,19 @@ static void  insertSlotsToResults(struct hostInfoEnt  *hPtr,
                                   struct lsInfo *lsInfo);
 
 static const struct fmt_field_def bhosts_fields[] = {
-    {"HOST_NAME", "HNAME", "HOST_NAME", HOST_NAME_LENGTH},
-    {"STATUS", "STAT", "STATUS", HOST_STATUS_SHORT},
-    {"JL_U", "JLU", "JL/U", HOST_JL_U_LENGTH},
-    {"MAX", NULL, "MAX", HOST_MAX_LENGTH},
-    {"NJOBS", NULL, "NJOBS", HOST_NJOBS_LENGTH},
-    {"RUN", NULL, "RUN", HOST_RUN_LENGTH},
-    {"SSUSP", NULL, "SSUSP", HOST_SSUSP_LENGTH},
-    {"USUSP", NULL, "USUSP", HOST_USUSP_LENGTH},
-    {"RSV", NULL, "RSV", HOST_RSV_LENGTH},
-    {"DISPATCH_WINDOW", "DISPWIN", "DISPATCH_WINDOW", 16},
-    {"AVAILABLE_MEM", NULL, "AVAILABLE_MEM", 13},
-    {"RESERVED_MEM", NULL, "RESERVED_MEM", 12},
-    {"TOTAL_MEM", NULL, "TOTAL_MEM", 10}
+    {"HOST_NAME", "HNAME", "HOST_NAME", 20},
+    {"STATUS", "STAT", "STATUS", 15},
+    {"JL_U", "JLU", "JL/U", 8},
+    {"MAX", NULL, "MAX", 8},
+    {"NJOBS", NULL, "NJOBS", 8},
+    {"RUN", NULL, "RUN", 8},
+    {"SSUSP", NULL, "SSUSP", 8},
+    {"USUSP", NULL, "USUSP", 8},
+    {"RSV", NULL, "RSV", 8},
+    {"DISPATCH_WINDOW", "DISPWIN", "DISPATCH_WINDOW", 50},
+    {"AVAILABLE_MEM", NULL, "AVAILABLE_MEM", 15},
+    {"RESERVED_MEM", NULL, "RESERVED_MEM", 15},
+    {"TOTAL_MEM", NULL, "TOTAL_MEM", 15}
 };
 
 #define BHOSTS_NUM_FIELDS \
