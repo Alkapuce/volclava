@@ -66,9 +66,11 @@ lsb_openjobinfo_a_fields(LS_LONG_INT jobId, char *jobName, char *userName,
     static __thread struct jobInfoHead jobInfoHead;
     mbdReqType mbdReqtype;
     XDR xdrs, xdrs2;
-    char request_buf[MSGSIZE];
+    char *request_buf = NULL;
     char *reply_buf, *clusterName = NULL;
     int cc, aa;
+    size_t outputFieldsLength;
+    size_t requestSize;
     struct LSFHeader hdr;
     char lsfUserName[MAXLINELEN];
     if (first) {
@@ -164,15 +166,25 @@ lsb_openjobinfo_a_fields(LS_LONG_INT jobId, char *jobName, char *userName,
     jobInfoReq.jobId = jobId;
     jobInfoReq.outputFields = (char *)(outputFields ? outputFields : "");
 
+    outputFieldsLength = strlen(jobInfoReq.outputFields);
+    requestSize = (size_t)MSGSIZE + outputFieldsLength + 8;
+    if (requestSize > UINT_MAX
+        || (request_buf = malloc(requestSize)) == NULL) {
+        lsberrno = LSBE_NO_MEM;
+        return(NULL);
+    }
 
     mbdReqtype = BATCH_JOB_INFO;
-    xdrmem_create(&xdrs, request_buf, MSGSIZE, XDR_ENCODE);
+    xdrmem_create(&xdrs, request_buf, (u_int)requestSize, XDR_ENCODE);
 
+    initLSFHeader_(&hdr);
     hdr.opCode = mbdReqtype;
     TIMEIT(1, (aa = xdr_encodeMsg(&xdrs, (char *) &jobInfoReq , &hdr,
                            xdr_jobInfoReq, 0, NULL)), "xdr_encodeMsg");
     if (aa == FALSE) {
         lsberrno = LSBE_XDR;
+        xdr_destroy(&xdrs);
+        free(request_buf);
         return(NULL);
     }
 
@@ -182,10 +194,12 @@ lsb_openjobinfo_a_fields(LS_LONG_INT jobId, char *jobName, char *userName,
                     &reply_buf, &hdr, &mbdSock, NULL, NULL)), "callmbd");
     if (cc  == -1) {
         xdr_destroy(&xdrs);
+	free(request_buf);
 	return (NULL);
     }
 
     xdr_destroy(&xdrs);
+    free(request_buf);
 
 
 

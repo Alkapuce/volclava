@@ -177,7 +177,9 @@ projectJobInfoReply(struct jobInfoReply *reply, const char *fields)
     reply->nIdx = 0;
 
     /* USER and PROJ_NAME are required by client-side visibility filters. */
-    if (!outputFieldRequested(fields, "STAT"))
+    if (!outputFieldRequested(fields, "STAT")
+        && !outputFieldRequested(fields, "EXEC_HOST")
+        && !outputFieldRequested(fields, "EXIT_CODE"))
         reply->status = 0;
     if (!outputFieldRequested(fields, "EXEC_HOST")) {
         for (i = 0; i < reply->numToHosts; i++)

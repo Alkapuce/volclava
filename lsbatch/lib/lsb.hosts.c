@@ -49,6 +49,8 @@ lsb_hostinfo_ex_fields(char **hosts, int *numHosts, char *resReq, int options,
     char *request_buf;
     char *reply_buf;
     int cc, i, numReq = -1;
+    size_t outputFieldsLength;
+    size_t requestSize;
     char *clusterName =NULL;
     static struct infoReq hostInfoReq;        
     struct hostDataReply reply;
@@ -139,13 +141,18 @@ lsb_hostinfo_ex_fields(char **hosts, int *numHosts, char *resReq, int options,
     hostInfoReq.outputFields = (char *)(outputFields ? outputFields : "");
 
     mbdReqtype = BATCH_HOST_INFO;
-    cc = sizeof(struct infoReq) + cc * MAXHOSTNAMELEN + cc + MAXLINELEN + 100;
-    if ((request_buf = malloc (cc)) == NULL) {
+    outputFieldsLength = strlen(hostInfoReq.outputFields);
+    requestSize = sizeof(struct infoReq)
+                  + (size_t)cc * (MAXHOSTNAMELEN + 1)
+                  + outputFieldsLength + 108;
+    if (requestSize > UINT_MAX
+        || (request_buf = malloc(requestSize)) == NULL) {
         lsberrno = LSBE_NO_MEM;
         return(NULL);
     }
-    xdrmem_create(&xdrs, request_buf, cc, XDR_ENCODE);
+    xdrmem_create(&xdrs, request_buf, (u_int)requestSize, XDR_ENCODE);
 
+    initLSFHeader_(&hdr);
     hdr.opCode = mbdReqtype;
     if (!xdr_encodeMsg(&xdrs, (char *)&hostInfoReq, &hdr, xdr_infoReq,
 		       0, NULL)) {

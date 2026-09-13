@@ -43,6 +43,8 @@ lsb_queueinfo_fields(char **queues, int *numQueues, char *hosts, char *users,
     char *request_buf;
     char *reply_buf;
     int cc, i;
+    size_t outputFieldsLength;
+    size_t requestSize;
     static struct LSFHeader hdr;
     char *clusterName = NULL;
 
@@ -139,12 +141,16 @@ lsb_queueinfo_fields(char **queues, int *numQueues, char *hosts, char *users,
     
 
     mbdReqtype = BATCH_QUE_INFO;
-    cc = sizeof(struct infoReq) + cc * MAXHOSTNAMELEN + cc + MAXLINELEN + 100;
-    if ((request_buf = malloc (cc)) == NULL) {
+    outputFieldsLength = strlen(queueInfoReq.outputFields);
+    requestSize = sizeof(struct infoReq)
+                  + (size_t)cc * (MAXHOSTNAMELEN + 1)
+                  + outputFieldsLength + 108;
+    if (requestSize > UINT_MAX
+        || (request_buf = malloc(requestSize)) == NULL) {
         lsberrno = LSBE_NO_MEM;
         return(NULL);
     }
-    xdrmem_create(&xdrs, request_buf, MSGSIZE, XDR_ENCODE);
+    xdrmem_create(&xdrs, request_buf, (u_int)requestSize, XDR_ENCODE);
     initLSFHeader_(&hdr); 
     hdr.opCode = mbdReqtype;
     if (!xdr_encodeMsg(&xdrs, (char*) &queueInfoReq, &hdr, xdr_infoReq,
