@@ -145,7 +145,6 @@ Please refer to [Installation guide](docs/volclava%20%E5%AE%89%E8%A3%85%E5%8F%8A
 The following article offers plentiful user and administrator operation guides, which can assist you in understanding and using the functions of volclava better.
 - [User Guide](docs/volclava%20%E7%94%A8%E6%88%B7%E6%89%8B%E5%86%8C.pdf)
 - [Administrator Guide](docs/volclava%20%E7%AE%A1%E7%90%86%E5%91%98%E6%89%8B%E5%86%8C.pdf)
-- [Custom Output Format](docs/custom_output_format.md)
 
 ## Contact Us
 We welcome inquiries and collaboration opportunities regarding the advanced applications of our scheduler, such as developing new features and coming up with new product design. Let's jointly promote the growth of VolcLava. Please feel free to contact us at volclava@picoheart.com

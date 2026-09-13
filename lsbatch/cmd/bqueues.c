@@ -93,9 +93,7 @@ static const struct fmt_field_def bqueues_fields[] = {
     {"MAX_SWAPLIMIT", "SWAPLIMIT", "MAX_SWAPLIMIT", 13},
     {"MAX_TASKLIMIT", "TASKLIMIT", "MAX_TASKLIMIT", 13},
     {"MIN_TASKLIMIT", NULL, "MIN_TASKLIMIT", 13},
-    {"DEFAULT_TASKLIMIT", "DEF_TASKLIMIT", "DEFAULT_TASKLIMIT", 17},
-    {"MAX_THREADLIMIT", "THREADLIMIT", "MAX_THREADLIMIT", 15},
-    {"DEFAULT_THREADLIMIT", "DEF_THREADLIMIT", "DEFAULT_THREADLIMIT", 19}
+    {"DEFAULT_TASKLIMIT", "DEF_TASKLIMIT", "DEFAULT_TASKLIMIT", 17}
 };
 
 #define BQUEUES_NUM_FIELDS \
@@ -373,10 +371,6 @@ bqueues_get_fmt_value(struct queueInfoEnt *queue, const char *field,
         bqueues_format_int_limit(queue->minProcLimit, FALSE, buf, buflen);
     } else if (strcmp(field, "DEFAULT_TASKLIMIT") == 0) {
         bqueues_format_int_limit(queue->defProcLimit, FALSE, buf, buflen);
-    } else if (strcmp(field, "MAX_THREADLIMIT") == 0) {
-        snprintf(buf, buflen, "-");
-    } else if (strcmp(field, "DEFAULT_THREADLIMIT") == 0) {
-        snprintf(buf, buflen, "-");
     } else {
         snprintf(buf, buflen, "-");
     }

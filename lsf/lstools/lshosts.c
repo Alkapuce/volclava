@@ -80,8 +80,6 @@ static const struct fmt_field_def lshosts_fields[] = {
     {"RESOURCES", "RES", "RESOURCES", 12},
     {"MAXTMP", NULL, "maxtmp", 8},
     {"NPROCS", NULL, "nprocs", 6},
-    {"NCORES", NULL, "ncores", 6},
-    {"NTHREADS", NULL, "nthreads", 8},
     {"RUN_WINDOWS", "RUNWIN", "RUN_WINDOWS", 14}
 };
 
@@ -421,10 +419,6 @@ lshosts_get_fmt_value(struct hostInfo *hostInfo, const char *field,
         lshosts_format_space(hostInfo->maxTmp, unit, buf, buflen);
     } else if (strcmp(field, "NPROCS") == 0) {
         lshosts_format_int(hostInfo->maxCpus, buf, buflen);
-    } else if (strcmp(field, "NCORES") == 0) {
-        snprintf(buf, buflen, "-");
-    } else if (strcmp(field, "NTHREADS") == 0) {
-        snprintf(buf, buflen, "-");
     } else if (strcmp(field, "RUN_WINDOWS") == 0) {
         if (hostInfo->isServer)
             snprintf(buf, buflen, "%s",

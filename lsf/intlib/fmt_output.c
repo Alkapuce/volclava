@@ -59,23 +59,26 @@ fmt_find_field(const struct fmt_field_def *fields, int num_fields,
 }
 
 static int
-fmt_parse_width(const char *text, int *width, int *left_align)
+fmt_parse_width(const char *text, int default_width, int *width,
+                int *right_align)
 {
     long value;
     char *end = NULL;
 
-    *left_align = 0;
+    *right_align = 0;
 
     if (*text == '-') {
-        *left_align = 1;
+        *right_align = 1;
         text++;
     }
 
-    if (*text == '\0')
-        return -1;
+    if (*text == '\0') {
+        *width = default_width;
+        return 0;
+    }
 
     value = strtol(text, &end, 10);
-    if (*end != '\0' || value <= 0 || value > 10000)
+    if (*end != '\0' || value <= 0 || value > 4096)
         return -1;
 
     *width = (int)value;
@@ -145,23 +148,41 @@ fmt_token_end(const char *p)
 }
 
 static void
-fmt_print_padded(FILE *out, const char *value, int width, int left_align)
+fmt_print_field(FILE *out, const char *value, int width, int right_align,
+                int keep_tail)
 {
-    int len;
+    size_t len;
+    size_t output_len;
+    int padding;
 
     if (!value)
         value = "-";
 
-    len = (int)strlen(value);
-    if (width <= 0 || len >= width) {
+    len = strlen(value);
+    if (width <= 0) {
         fputs(value, out);
         return;
     }
 
-    if (left_align)
-        fprintf(out, "%-*s", width, value);
-    else
-        fprintf(out, "%*s", width, value);
+    output_len = len > (size_t)width ? (size_t)width : len;
+    padding = width - (int)output_len;
+    if (right_align) {
+        while (padding-- > 0)
+            fputc(' ', out);
+    }
+
+    if (len > output_len && keep_tail) {
+        fputc('*', out);
+        if (output_len > 1)
+            fwrite(value + len - output_len + 1, 1, output_len - 1, out);
+    } else {
+        fwrite(value, 1, output_len, out);
+    }
+
+    if (!right_align) {
+        while (padding-- > 0)
+            fputc(' ', out);
+    }
 }
 
 int
@@ -195,8 +216,8 @@ fmt_output_parse(const char *format, const struct fmt_field_def *fields,
         const char *field_start;
         size_t field_len;
         int width = 0;
-        int left_align = 0;
-        int explicit_width = 0;
+        int right_align = 0;
+        int has_width = 0;
         const struct fmt_field_def *field;
 
         while (*p && isspace((unsigned char)*p))
@@ -251,16 +272,7 @@ fmt_output_parse(const char *format, const struct fmt_field_def *fields,
             width_pos = strchr(token, '%');
         if (width_pos) {
             field_len = (size_t)(width_pos - token);
-            explicit_width = 1;
-            if (fmt_parse_width(width_pos + 1, &width, &left_align) < 0) {
-                int rc;
-
-                rc = fmt_set_error(errbuf, errbuf_len,
-                                   "Invalid output width in <%s>.", token);
-                free(token);
-                fmt_output_free(request);
-                return rc;
-            }
+            has_width = 1;
         }
 
         if (field_len == 0) {
@@ -284,6 +296,18 @@ fmt_output_parse(const char *format, const struct fmt_field_def *fields,
             return rc;
         }
 
+        if (has_width &&
+            fmt_parse_width(width_pos + 1, field->default_width,
+                            &width, &right_align) < 0) {
+            int rc;
+
+            rc = fmt_set_error(errbuf, errbuf_len,
+                               "Invalid output width in <%s>.", token);
+            free(token);
+            fmt_output_free(request);
+            return rc;
+        }
+
         if (request->num_columns == capacity) {
             struct fmt_column *columns;
 
@@ -300,11 +324,9 @@ fmt_output_parse(const char *format, const struct fmt_field_def *fields,
         }
 
         request->columns[request->num_columns].field = field;
-        request->columns[request->num_columns].width =
-            width > 0 ? width : field->default_width;
-        request->columns[request->num_columns].left_align = left_align;
-        request->columns[request->num_columns].explicit_width =
-            explicit_width;
+        request->columns[request->num_columns].width = width;
+        request->columns[request->num_columns].right_align = right_align;
+        request->columns[request->num_columns].has_width = has_width;
         request->num_columns++;
         free(token);
     }
@@ -374,7 +396,12 @@ fmt_output_print_header(FILE *out, const struct fmt_request *request)
     int i;
 
     for (i = 0; i < request->num_columns; i++) {
-        fmt_output_print_value(out, request, i, request->columns[i].field->header);
+        const struct fmt_column *column = &request->columns[i];
+
+        if (i > 0)
+            fputc(request->has_delimiter ? request->delimiter : ' ', out);
+        fmt_print_field(out, column->field->header, column->width,
+                        column->right_align, 0);
     }
     fmt_output_print_eol(out);
 }
@@ -384,7 +411,6 @@ fmt_output_print_value(FILE *out, const struct fmt_request *request,
                        int column_index, const char *value)
 {
     const struct fmt_column *column;
-    int width;
 
     if (column_index > 0) {
         if (request->has_delimiter)
@@ -394,11 +420,8 @@ fmt_output_print_value(FILE *out, const struct fmt_request *request,
     }
 
     column = &request->columns[column_index];
-    width = column->width;
-    if (request->has_delimiter && !column->explicit_width)
-        width = 0;
-
-    fmt_print_padded(out, value, width, column->left_align);
+    fmt_print_field(out, value, column->width, column->right_align,
+                    strcmp(column->field->name, "JOB_NAME") == 0);
 }
 
 void

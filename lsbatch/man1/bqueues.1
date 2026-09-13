@@ -992,11 +992,13 @@ The \fB-o\fR option accepts a blank-separated output format:
 \fIfield_name\fR%[-]\fIoutput_width\fR ... [delimiter='\fIcharacter\fR']
 
 .PP
-Field names and aliases are case-insensitive. A positive width right-aligns
-the field, and a negative width left-aligns the field. Without
-\fBdelimiter\fR, fields are separated by one space. With \fBdelimiter\fR,
-the specified single character is used between fields. Values longer than
-their width are not truncated.
+Field names and aliases are case-insensitive. A field without a width is
+unlimited and left-aligned. A colon or percent sign without a number uses
+the recommended width. A hyphen selects right alignment; otherwise output
+is left-aligned. Widths are limited to 1 through 4096 characters, and values
+longer than the selected width are truncated. Without \fBdelimiter\fR,
+fields are separated by one space. With \fBdelimiter\fR, the specified
+single character is used between fields.
 
 .PP
 Supported fields are:
@@ -1011,8 +1013,7 @@ MAX_FILELIMIT(FILELIMIT), MAX_MEMLIMIT(MEMLIMIT),
 DEFAULT_MEMLIMIT(DEF_MEMLIMIT), MAX_PROCESSLIMIT(PROCESSLIMIT),
 DEFAULT_PROCESSLIMIT(DEF_PROCESSLIMIT), MAX_STACKLIMIT(STACKLIMIT),
 MAX_SWAPLIMIT(SWAPLIMIT), MAX_TASKLIMIT(TASKLIMIT), MIN_TASKLIMIT,
-DEFAULT_TASKLIMIT(DEF_TASKLIMIT), MAX_THREADLIMIT(THREADLIMIT),
-DEFAULT_THREADLIMIT(DEF_THREADLIMIT).
+DEFAULT_TASKLIMIT(DEF_TASKLIMIT).
 
 .PP
 Examples:

@@ -20,8 +20,8 @@ struct fmt_field_def {
 struct fmt_column {
     const struct fmt_field_def *field;
     int width;
-    int left_align;
-    int explicit_width;
+    int right_align;
+    int has_width;
 };
 
 struct fmt_request {
