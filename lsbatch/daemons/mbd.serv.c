@@ -1463,7 +1463,22 @@ jobOutputFieldMask(const char *fields)
         if (outputFieldRequested(fields, fieldMap[i].name))
             mask |= fieldMap[i].bit;
     }
+    if (mask & (JOB_OUTPUT_EXEC_HOST | JOB_OUTPUT_EXIT_CODE))
+        mask |= JOB_OUTPUT_STAT;
     return mask;
+}
+
+static int
+addJobOutputStringSize(size_t *size, const char *value)
+{
+    size_t length;
+
+    length = strlen(value ? value : "");
+    if (*size > (size_t)INT_MAX - 8
+        || length > (size_t)INT_MAX - *size - 8)
+        return -1;
+    *size += length + 8;
+    return 0;
 }
 
 static int
@@ -1478,12 +1493,13 @@ packJobOutput(struct jData *jobData, int remain, char **replyBuf,
     char *buffer;
     int len;
     int i;
+    size_t needed = 512;
 
     memset(&reply, 0, sizeof(reply));
     bill = &jobData->shared->jobBill;
     reply.jobId = jobData->jobId;
     reply.fields = jobOutputFieldMask(outputFields);
-    reply.userName = jobData->userName;
+    reply.userName = jobData->userName ? jobData->userName : "";
     reply.status = (jobData->jStatus & JOB_STAT_UNKWN)
                    ? JOB_STAT_UNKWN
                    : (jobData->jStatus & MASK_INT_JOB_STAT);
@@ -1506,29 +1522,55 @@ packJobOutput(struct jData *jobData, int remain, char **replyBuf,
     reply.jobName = fullName;
     if (reply.fields & JOB_OUTPUT_EXEC_HOST) {
         reply.numExHosts = jobData->numHostPtr;
+        if (reply.numExHosts < 0 || reply.numExHosts > 1000000)
+            return -1;
         if (reply.numExHosts > 0) {
             reply.exHosts = my_calloc(reply.numExHosts, sizeof(char *),
                                       "packJobOutput");
-            for (i = 0; i < reply.numExHosts; i++)
-                reply.exHosts[i] = jobData->hPtr[i]->host;
+            for (i = 0; i < reply.numExHosts; i++) {
+                if (!jobData->hPtr || !jobData->hPtr[i]
+                    || !jobData->hPtr[i]->host)
+                    reply.exHosts[i] = "";
+                else
+                    reply.exHosts[i] = jobData->hPtr[i]->host;
+            }
         }
     }
 
-    len = 512 + (int)strlen(reply.userName)
-          + (int)strlen(reply.projectName);
-    if (reply.fields & JOB_OUTPUT_QUEUE)
-        len += (int)strlen(reply.queue) + 8;
-    if (reply.fields & JOB_OUTPUT_FROM_HOST)
-        len += (int)strlen(reply.fromHost) + 8;
-    if (reply.fields & JOB_OUTPUT_JOB_NAME)
-        len += (int)strlen(reply.jobName) + 8;
-    if (reply.fields & JOB_OUTPUT_EXEC_HOST) {
-        for (i = 0; i < reply.numExHosts; i++)
-            len += (int)strlen(reply.exHosts[i]) + 8;
+    if ((reply.fields & JOB_OUTPUT_PIDS)
+        && (reply.npids < 0 || reply.npids > 1000000
+            || (reply.npids > 0 && !reply.pidInfo))) {
+        FREEUP(reply.exHosts);
+        return -1;
     }
+    if (addJobOutputStringSize(&needed, reply.userName) < 0
+        || addJobOutputStringSize(&needed, reply.projectName) < 0)
+        goto sizeError;
+    if (reply.fields & JOB_OUTPUT_QUEUE) {
+        if (addJobOutputStringSize(&needed, reply.queue) < 0)
+            goto sizeError;
+    }
+    if (reply.fields & JOB_OUTPUT_FROM_HOST) {
+        if (addJobOutputStringSize(&needed, reply.fromHost) < 0)
+            goto sizeError;
+    }
+    if (reply.fields & JOB_OUTPUT_JOB_NAME) {
+        if (addJobOutputStringSize(&needed, reply.jobName) < 0)
+            goto sizeError;
+    }
+    if (reply.fields & JOB_OUTPUT_EXEC_HOST) {
+        for (i = 0; i < reply.numExHosts; i++) {
+            if (addJobOutputStringSize(&needed, reply.exHosts[i]) < 0)
+                goto sizeError;
+        }
+    }
+    if ((reply.fields & JOB_OUTPUT_PIDS)
+        && (size_t)reply.npids > ((size_t)INT_MAX - needed) / 8)
+        goto sizeError;
     if (reply.fields & JOB_OUTPUT_PIDS)
-        len += reply.npids * 8;
+        needed += (size_t)reply.npids * 8;
 
+    len = (int)needed;
     buffer = my_malloc(len, "packJobOutput");
     xdrmem_create(&xdrs, buffer, len, XDR_ENCODE);
     initLSFHeader_(&hdr);
@@ -1547,6 +1589,10 @@ packJobOutput(struct jData *jobData, int remain, char **replyBuf,
     FREEUP(reply.exHosts);
     *replyBuf = buffer;
     return len;
+
+sizeError:
+    FREEUP(reply.exHosts);
+    return -1;
 }
 
 int

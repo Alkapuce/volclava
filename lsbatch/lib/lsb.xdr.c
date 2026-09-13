@@ -1113,8 +1113,10 @@ xdr_jobOutputReply(XDR *xdrs, struct jobOutputReply *reply,
         FREEUP(reply->userName);
         FREEUP(reply->queue);
         FREEUP(reply->fromHost);
-        for (i = 0; i < reply->numExHosts; i++)
-            FREEUP(reply->exHosts[i]);
+        if (reply->exHosts) {
+            for (i = 0; i < reply->numExHosts; i++)
+                FREEUP(reply->exHosts[i]);
+        }
         FREEUP(reply->exHosts);
         FREEUP(reply->jobName);
         FREEUP(reply->projectName);
