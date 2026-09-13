@@ -219,6 +219,18 @@ is left-aligned. Widths are limited to 1 through 4096 characters, and values
 longer than the selected width are truncated. The default delimiter is a
 space. For example: bjobs -o "jobid user stat:- delimiter='|'".
 
+.IP
+Supported fields are JOBID(ID), JOB_IDX, USER, STAT, QUEUE, FROM_HOST,
+EXEC_HOST, JOB_NAME(NAME), SUBMIT_TIME, PROJ_NAME, CPU_USED, MEM, SWAP,
+PIDS, START_TIME, FINISH_TIME, and EXIT_CODE. A value that is not available
+is displayed as a hyphen. For a finished job, EXIT_CODE is the process exit
+status, or 128 plus the terminating signal number when the job was terminated
+by a signal.
+
+.IP
+The delimiter is emitted literally between fields. The command does not add
+CSV quoting or escaping when a field contains the delimiter.
+
 
 .TP
 \fB-json

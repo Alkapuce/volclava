@@ -22,6 +22,8 @@
 #include "cmd.h"
 #include "../../lsf/intlib/fmt_output.h"
 
+#include <ctype.h>
+
 void load2Str();
 static void prtQueuesLong (int, struct queueInfoEnt *);
 static void prtQueuesShort (int, struct queueInfoEnt *);
@@ -228,10 +230,18 @@ main(int argc, char **argv)
     return 0;
 }
 
-static char *
-bqueues_clean_string(char *value)
+static const char *
+bqueues_clean_string(const char *value)
 {
-    if (!value || value[0] == '\0' || strcmp(value, " ") == 0)
+    const unsigned char *cursor;
+
+    if (!value)
+        return "-";
+
+    cursor = (const unsigned char *)value;
+    while (*cursor && isspace(*cursor))
+        cursor++;
+    if (*cursor == '\0')
         return "-";
 
     return value;
@@ -266,20 +276,20 @@ bqueues_format_int_limit(int value, int allow_zero, char *buf, size_t buflen)
 static void
 bqueues_format_float_limit(float value, char *buf, size_t buflen)
 {
-    if (value < INFINIT_FLOAT)
+    if (value >= 0 && value < INFINIT_FLOAT)
         snprintf(buf, buflen, "%.1f", value);
     else
         snprintf(buf, buflen, "-");
 }
 
-static void
+static const char *
 bqueues_get_fmt_value(struct queueInfoEnt *queue, const char *field,
                       char *buf, size_t buflen)
 {
     if (strcmp(field, "QUEUE_NAME") == 0) {
-        snprintf(buf, buflen, "%s", queue->queue);
+        return bqueues_clean_string(queue->queue);
     } else if (strcmp(field, "DESCRIPTION") == 0) {
-        snprintf(buf, buflen, "%s", bqueues_clean_string(queue->description));
+        return bqueues_clean_string(queue->description);
     } else if (strcmp(field, "PRIORITY") == 0) {
         snprintf(buf, buflen, "%d", queue->priority);
     } else if (strcmp(field, "STATUS") == 0) {
@@ -309,9 +319,9 @@ bqueues_get_fmt_value(struct queueInfoEnt *queue, const char *field,
     } else if (strcmp(field, "NICE") == 0) {
         snprintf(buf, buflen, "%d", queue->nice);
     } else if (strcmp(field, "HOSTS") == 0) {
-        snprintf(buf, buflen, "%s", bqueues_clean_string(queue->hostList));
+        return bqueues_clean_string(queue->hostList);
     } else if (strcmp(field, "RES_REQ") == 0) {
-        snprintf(buf, buflen, "%s", bqueues_clean_string(queue->resReq));
+        return bqueues_clean_string(queue->resReq);
     } else if (strcmp(field, "MAX_CORELIMIT") == 0) {
         bqueues_format_int_limit(queue->rLimits[LSF_RLIMIT_CORE], TRUE,
                                  buf, buflen);
@@ -357,6 +367,7 @@ bqueues_get_fmt_value(struct queueInfoEnt *queue, const char *field,
     } else {
         snprintf(buf, buflen, "-");
     }
+    return buf;
 }
 
 static void
@@ -369,10 +380,12 @@ prtQueuesO(int numQueues, struct queueInfoEnt *queueInfo,
     fmt_output_print_header(stdout, request);
     for (i = 0; i < numQueues; i++) {
         for (j = 0; j < request->num_columns; j++) {
-            bqueues_get_fmt_value(&queueInfo[i],
-                                  request->columns[j].field->name,
-                                  value, sizeof(value));
-            fmt_output_print_value(stdout, request, j, value);
+            const char *fieldValue;
+
+            fieldValue = bqueues_get_fmt_value(
+                &queueInfo[i], request->columns[j].field->name,
+                value, sizeof(value));
+            fmt_output_print_value(stdout, request, j, fieldValue);
         }
         fmt_output_print_eol(stdout);
     }

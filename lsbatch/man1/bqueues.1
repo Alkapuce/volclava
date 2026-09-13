@@ -1016,6 +1016,15 @@ MAX_SWAPLIMIT(SWAPLIMIT), MAX_TASKLIMIT(TASKLIMIT), MIN_TASKLIMIT,
 DEFAULT_TASKLIMIT(DEF_TASKLIMIT).
 
 .PP
+An empty or whitespace-only string is displayed as a hyphen. Unlimited,
+unset, or negative limit values are also displayed as a hyphen. Zero remains
+a valid value for limits whose queue definition permits zero.
+
+.PP
+The delimiter is emitted literally between fields. The command does not add
+CSV quoting or escaping when a field contains the delimiter.
+
+.PP
 Examples:
 
 .IP

@@ -55,7 +55,7 @@ static int numJids;
 static int foundJids;
 
 #define MAX_TIMERSTRLEN         20
-#define MAX_TIMESTRLEN          20
+#define MAX_TIMESTRLEN          64
 int uflag = FALSE;
 int Wflag = FALSE;
 int jsonflag = FALSE;
@@ -85,7 +85,7 @@ static const struct fmt_field_def bjobs_fields[] = {
 
 static int isLSFAdmin(void);
 static char *Timer2String(float timer);
-static char *Time2String(int timer);
+static char *Time2String(time_t timer);
 static struct config_param securebjobsParams[] =
 {
 # define LSB_SECURE_JOBINFO_USERS 0
@@ -142,7 +142,7 @@ main (int argc, char **argv)
     char prline[MAXLINELEN];
     char defaultJobName[8] = "/";
     static char lsfUserName[MAXLINELEN];
-    int rc,cc;
+    int cc;
     cJSON *bjobsJson = NULL;
     cJSON *jobJsonArray = NULL;
     cJSON *jobJsonItem = NULL;
@@ -156,7 +156,7 @@ main (int argc, char **argv)
     char *qUser = NULL;
     struct fmt_request formatRequest = {0};
 
-    rc = _i18n_init ( I18N_CAT_MIN );
+    _i18n_init ( I18N_CAT_MIN );
 
     if (lsb_init(argv[0]) < 0) {
         lsb_perror("lsb_init");
@@ -588,6 +588,7 @@ displayJobs (struct jobInfoEnt *job, struct jobInfoHead *jInfoH,
     char *jobName, *pos;
     NAMELIST  *hostList = NULL;
     char tmpBuf[MAXLINELEN];
+    char arrayJobName[MAXLINELEN];
     char osUserName[MAXLINELEN];
 
 
@@ -678,10 +679,11 @@ displayJobs (struct jobInfoEnt *job, struct jobInfoHead *jInfoH,
         goto cleanup;
     }
 
-    jobName = submitInfo->jobName;
+    jobName = submitInfo->jobName ? submitInfo->jobName : "-";
     if (LSB_ARRAY_IDX(job->jobId) && (pos = strchr(jobName, '['))) {
-        *pos = '\0';
-        sprintf(jobName, "%s[%d]", jobName, LSB_ARRAY_IDX(job->jobId));
+        snprintf(arrayJobName, sizeof(arrayJobName), "%.*s[%d]",
+                 (int)(pos - jobName), jobName, LSB_ARRAY_IDX(job->jobId));
+        jobName = arrayJobName;
     }
     if (options == PEND_JOB) {
 
@@ -848,17 +850,18 @@ displayJobs (struct jobInfoEnt *job, struct jobInfoHead *jInfoH,
 
 
     if ((options & PEND_JOB) &&  IS_PEND(job->status)) {
-        printf(lsb_pendreason(job->numReasons, job->reasonTb, NULL,
-                              loadIndex));
+        printf("%s", lsb_pendreason(job->numReasons, job->reasonTb, NULL,
+                                    loadIndex));
     }
 
 
     if ((options & SUSP_JOB) &&  IS_SUSP(job->status)) {
         if (job->status & JOB_STAT_PSUSP && !(options & PEND_JOB))
-            printf(lsb_pendreason(job->numReasons, job->reasonTb, NULL,
-                                  loadIndex));
+            printf("%s", lsb_pendreason(job->numReasons, job->reasonTb, NULL,
+                                        loadIndex));
         else if (!(job->status & JOB_STAT_PSUSP))
-            printf(lsb_suspreason(job->reasons, job->subreasons, loadIndex));
+            printf("%s", lsb_suspreason(job->reasons, job->subreasons,
+                                        loadIndex));
     }
 
 cleanup:
@@ -886,11 +889,15 @@ bjobs_join_exec_hosts(struct jobInfoEnt *job)
     char *value;
     int i;
 
-    if (IS_PEND(job->status) || job->numExHosts == 0)
+    if (IS_PEND(job->status) || job->numExHosts <= 0 || !job->exHosts)
         return strdup("-");
 
     for (i = 0; i < job->numExHosts; i++) {
-        size_t len = strlen(job->exHosts[i]);
+        size_t len;
+
+        if (!job->exHosts[i])
+            return strdup("-");
+        len = strlen(job->exHosts[i]);
 
         if (len > SIZE_MAX - needed - (i > 0 ? 1 : 0))
             return NULL;
@@ -916,12 +923,16 @@ bjobs_join_exec_hosts(struct jobInfoEnt *job)
 static char *
 bjobs_make_job_name(struct jobInfoEnt *job)
 {
-    const char *name = job->submit.jobName ? job->submit.jobName : "-";
+    const char *name = job->submit.jobName;
     const char *bracket = NULL;
-    size_t base_len = strlen(name);
+    size_t base_len;
     char suffix[32];
     size_t suffix_len = 0;
     char *value;
+
+    if (!name || name[0] == '\0')
+        return strdup("-");
+    base_len = strlen(name);
 
     if (LSB_ARRAY_IDX(job->jobId)) {
         bracket = strchr(name, '[');
@@ -950,7 +961,7 @@ bjobs_make_pids(struct jobInfoEnt *job)
     char *value;
     int i;
 
-    if (job->runRusage.npids <= 0)
+    if (job->runRusage.npids <= 0 || !job->runRusage.pidInfo)
         return strdup("-");
 
     for (i = 0; i < job->runRusage.npids; i++) {
@@ -990,7 +1001,10 @@ bjobs_prepare_fmt_record(struct jobInfoEnt *job, struct bjobs_fmt_record *record
     record->submitInfo = &job->submit;
     record->status = get_status(job);
 
-    if (getOSUserName_(job->user, record->osUserName, MAXLINELEN) != 0) {
+    if (!job->user) {
+        strcpy(record->osUserName, "-");
+    } else if (getOSUserName_(job->user, record->osUserName,
+                              MAXLINELEN) != 0) {
         strncpy(record->osUserName, job->user, MAXLINELEN);
         record->osUserName[MAXLINELEN - 1] = '\0';
     }
@@ -1034,9 +1048,12 @@ bjobs_get_fmt_value(struct bjobs_fmt_record *record, const char *field,
     } else if (strcmp(field, "STAT") == 0) {
         snprintf(buf, buflen, "%s", record->status);
     } else if (strcmp(field, "QUEUE") == 0) {
-        snprintf(buf, buflen, "%s", record->submitInfo->queue);
+        snprintf(buf, buflen, "%s",
+                 record->submitInfo->queue && record->submitInfo->queue[0]
+                 ? record->submitInfo->queue : "-");
     } else if (strcmp(field, "FROM_HOST") == 0) {
-        snprintf(buf, buflen, "%s", job->fromHost);
+        snprintf(buf, buflen, "%s",
+                 job->fromHost && job->fromHost[0] ? job->fromHost : "-");
     } else if (strcmp(field, "EXEC_HOST") == 0) {
         return record->execHost;
     } else if (strcmp(field, "JOB_NAME") == 0) {
@@ -1044,7 +1061,9 @@ bjobs_get_fmt_value(struct bjobs_fmt_record *record, const char *field,
     } else if (strcmp(field, "SUBMIT_TIME") == 0) {
         snprintf(buf, buflen, "%s", record->submitTime);
     } else if (strcmp(field, "PROJ_NAME") == 0) {
-        snprintf(buf, buflen, "%s", job->submit.projectName);
+        snprintf(buf, buflen, "%s",
+                 job->submit.projectName && job->submit.projectName[0]
+                 ? job->submit.projectName : "-");
     } else if (strcmp(field, "CPU_USED") == 0) {
         if (job->cpuTime > 0)
             cpuTime = job->cpuTime;
@@ -1073,7 +1092,12 @@ bjobs_get_fmt_value(struct bjobs_fmt_record *record, const char *field,
         if (IS_FINISH(job->status)) {
             LS_WAIT_T wStatus;
             LS_STATUS(wStatus) = job->exitStatus;
-            snprintf(buf, buflen, "%d", WEXITSTATUS(wStatus));
+            if (WIFEXITED(wStatus))
+                snprintf(buf, buflen, "%d", WEXITSTATUS(wStatus));
+            else if (WIFSIGNALED(wStatus))
+                snprintf(buf, buflen, "%d", 128 + WTERMSIG(wStatus));
+            else
+                snprintf(buf, buflen, "-");
         } else {
             snprintf(buf, buflen, "-");
         }
@@ -1263,21 +1287,23 @@ Timer2String(float timer)
 }
 
 static char *
-Time2String(int timer)
+Time2String(time_t timer)
 {
     static char TimeStr[MAX_TIMESTRLEN];
     struct tm *Time;
-    time_t tempTime;
 
     memset(TimeStr, '\0', sizeof(TimeStr));
-    tempTime = (time_t) timer;
-    Time = (struct tm *) localtime(&tempTime);
-    sprintf(TimeStr, "%02d/%02d-%02d:%02d:%02d",
-            Time->tm_mon+1,
-            Time->tm_mday,
-            Time->tm_hour,
-            Time->tm_min,
-            Time->tm_sec);
+    Time = localtime(&timer);
+    if (!Time) {
+        snprintf(TimeStr, sizeof(TimeStr), "-");
+        return TimeStr;
+    }
+    snprintf(TimeStr, sizeof(TimeStr), "%02d/%02d-%02d:%02d:%02d",
+             Time->tm_mon+1,
+             Time->tm_mday,
+             Time->tm_hour,
+             Time->tm_min,
+             Time->tm_sec);
 
     return(TimeStr);
 }

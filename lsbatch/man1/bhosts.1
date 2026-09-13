@@ -505,6 +505,17 @@ USUSP, RSV, DISPATCH_WINDOW(DISPWIN), AVAILABLE_MEM, RESERVED_MEM,
 TOTAL_MEM.
 
 .PP
+AVAILABLE_MEM is the current available memory load reported by LIM.
+RESERVED_MEM is the absolute difference between the current available load
+and the corresponding real load. TOTAL_MEM is their sum. An unavailable
+memory load, an unlimited job limit, or a negative job limit is displayed as
+a hyphen.
+
+.PP
+The delimiter is emitted literally between fields. The command does not add
+CSV quoting or escaping when a field contains the delimiter.
+
+.PP
 Examples:
 
 .IP

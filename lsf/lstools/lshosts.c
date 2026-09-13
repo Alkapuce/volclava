@@ -121,7 +121,6 @@ print_long(struct hostInfo *hostInfo)
     char  *sp;
     static char first = TRUE;
     static char line[132];
-    static char newFmt[10];
     int newIndexLen, retVal;
     static char **indxnames;
     char **shareNames, **shareValues, **formats;
@@ -154,8 +153,8 @@ print_long(struct hostInfo *hostInfo)
                 fmtid = i;
 
             if ((fmtid == MEM +1) && (newIndexLen = strlen(indxnames[i])) >= 7) {
-	        sprintf(newFmt, "%s%d%s", "%", newIndexLen+1, "s");
-		sprintf(tmpbuf, newFmt, indxnames[i]);
+		snprintf(tmpbuf, sizeof(tmpbuf), "%*s", newIndexLen + 1,
+                         indxnames[i]);
 	    }
             else
                 sprintf(tmpbuf, fmt[fmtid].hdr, indxnames[i]);
@@ -295,8 +294,7 @@ print_long(struct hostInfo *hostInfo)
             sp = stripSpaces(tmpfield);
         }
 	if ((id == MEM + 1) && (newIndexLen = strlen (indxnames[i])) >= 7 ){
-	    sprintf(newFmt, "%s%d%s", "%", newIndexLen+1, "s");
-            printf(newFmt, sp);
+            printf("%*s", newIndexLen + 1, sp);
         }
 	else
             printf(fmt[id].hdr, sp);
@@ -364,46 +362,77 @@ lshosts_format_int(int value, char *buf, size_t buflen)
         snprintf(buf, buflen, "-");
 }
 
-static void
-lshosts_format_resources(struct hostInfo *hostInfo, char *buf, size_t buflen)
+static char *
+lshosts_make_resources(struct hostInfo *hostInfo)
 {
     int i;
-    size_t used;
+    size_t needed = 3;
+    size_t used = 0;
+    char *value;
 
-    if (buflen == 0)
-        return;
+    if (hostInfo->nRes <= 0 || !hostInfo->resources)
+        return strdup("-");
 
-    if (hostInfo->nRes <= 0) {
-        snprintf(buf, buflen, "-");
-        return;
-    }
-
-    snprintf(buf, buflen, "(");
     for (i = 0; i < hostInfo->nRes; i++) {
-        used = strlen(buf);
-        if (used >= buflen - 1)
-            break;
-        snprintf(buf + used, buflen - used, "%s%s",
-                 i == 0 ? "" : " ", hostInfo->resources[i]);
+        const char *resource = hostInfo->resources[i];
+        size_t length;
+
+        if (!resource || resource[0] == '\0')
+            resource = "-";
+        length = strlen(resource);
+        if (length > (size_t)-1 - needed - (i > 0 ? 1 : 0))
+            return NULL;
+        needed += length + (i > 0 ? 1 : 0);
     }
 
-    used = strlen(buf);
-    if (used < buflen - 1)
-        snprintf(buf + used, buflen - used, ")");
+    value = malloc(needed);
+    if (!value)
+        return NULL;
+
+    value[used++] = '(';
+    for (i = 0; i < hostInfo->nRes; i++) {
+        const char *resource = hostInfo->resources[i];
+        size_t length;
+
+        if (!resource || resource[0] == '\0')
+            resource = "-";
+        length = strlen(resource);
+        if (i > 0)
+            value[used++] = ' ';
+        memcpy(value + used, resource, length);
+        used += length;
+    }
+    value[used++] = ')';
+    value[used] = '\0';
+    return value;
 }
 
-static void
+static int
+lshosts_request_has_field(const struct fmt_request *request,
+                          const char *field)
+{
+    int i;
+
+    for (i = 0; i < request->num_columns; i++) {
+        if (strcmp(request->columns[i].field->name, field) == 0)
+            return TRUE;
+    }
+    return FALSE;
+}
+
+static const char *
 lshosts_get_fmt_value(struct hostInfo *hostInfo, const char *field,
-                      unitTypes unit, char *buf, size_t buflen)
+                      unitTypes unit, const char *resources,
+                      char *buf, size_t buflen)
 {
     if (strcmp(field, "HOST_NAME") == 0) {
-        snprintf(buf, buflen, "%s", hostInfo->hostName);
+        return hostInfo->hostName[0] ? hostInfo->hostName : "-";
     } else if (strcmp(field, "TYPE") == 0) {
-        snprintf(buf, buflen, "%s",
-                 hostInfo->hostType ? hostInfo->hostType : "-");
+        return hostInfo->hostType && hostInfo->hostType[0]
+               ? hostInfo->hostType : "-";
     } else if (strcmp(field, "MODEL") == 0) {
-        snprintf(buf, buflen, "%s",
-                 hostInfo->hostModel ? hostInfo->hostModel : "-");
+        return hostInfo->hostModel && hostInfo->hostModel[0]
+               ? hostInfo->hostModel : "-";
     } else if (strcmp(field, "CPUF") == 0) {
         snprintf(buf, buflen, "%.1f", hostInfo->cpuFactor);
     } else if (strcmp(field, "NCPUS") == 0) {
@@ -415,21 +444,22 @@ lshosts_get_fmt_value(struct hostInfo *hostInfo, const char *field,
     } else if (strcmp(field, "SERVER") == 0) {
         snprintf(buf, buflen, "%s", hostInfo->isServer ? I18N_Yes : I18N_No);
     } else if (strcmp(field, "RESOURCES") == 0) {
-        lshosts_format_resources(hostInfo, buf, buflen);
+        return resources;
     } else if (strcmp(field, "MAXTMP") == 0) {
         lshosts_format_space(hostInfo->maxTmp, unit, buf, buflen);
     } else if (strcmp(field, "NPROCS") == 0) {
         lshosts_format_int(hostInfo->maxCpus, buf, buflen);
     } else if (strcmp(field, "RUN_WINDOWS") == 0) {
         if (hostInfo->isServer)
-            snprintf(buf, buflen, "%s",
-                     hostInfo->windows && strcmp(hostInfo->windows, "-") != 0
-                     ? hostInfo->windows : "always open");
+            return hostInfo->windows && hostInfo->windows[0] &&
+                   strcmp(hostInfo->windows, "-") != 0
+                   ? hostInfo->windows : "always open";
         else
             snprintf(buf, buflen, "-");
     } else {
         snprintf(buf, buflen, "-");
     }
+    return buf;
 }
 
 static void
@@ -438,18 +468,31 @@ print_o(struct hostInfo *hostInfo, int numHosts,
 {
     char value[MAXLINELEN];
     unitTypes unit;
-    int i, j;
+    int needResources, i, j;
 
     unit = lshosts_get_unit_for_limits();
+    needResources = lshosts_request_has_field(request, "RESOURCES");
     fmt_output_print_header(stdout, request);
     for (i = 0; i < numHosts; i++) {
+        char *resources = NULL;
+
+        if (needResources)
+            resources = lshosts_make_resources(&hostInfo[i]);
+        if (needResources && !resources) {
+            lserrno = LSE_MALLOC;
+            ls_perror("lshosts_make_resources");
+            exit(-1);
+        }
         for (j = 0; j < request->num_columns; j++) {
-            lshosts_get_fmt_value(&hostInfo[i],
-                                  request->columns[j].field->name,
-                                  unit, value, sizeof(value));
-            fmt_output_print_value(stdout, request, j, value);
+            const char *fieldValue;
+
+            fieldValue = lshosts_get_fmt_value(
+                &hostInfo[i], request->columns[j].field->name,
+                unit, resources ? resources : "-", value, sizeof(value));
+            fmt_output_print_value(stdout, request, j, fieldValue);
         }
         fmt_output_print_eol(stdout);
+        free(resources);
     }
 
 }
@@ -458,7 +501,7 @@ int
 main(int argc, char **argv)
 {
     static char fname[] = "lshosts/main";
-    char   *namebufs[256];
+    char   **namebufs = NULL;
     struct hostInfo *hostinfo;
     int    numhosts = 0;
     struct hostent *hp;
@@ -474,12 +517,11 @@ main(int argc, char **argv)
     int     unknown;
     int     options=0;
     int isClus;
-    int rc;
     struct fmt_request formatRequest = {0};
     char fmtErrbuf[MAXLINELEN];
 
 
-    rc = _i18n_init ( I18N_CAT_MIN );
+    _i18n_init ( I18N_CAT_MIN );
 
     if (ls_initdebug(argv[0]) < 0) {
         ls_perror("ls_initdebug");
@@ -522,6 +564,12 @@ main(int argc, char **argv)
     if (staticResource == TRUE) {
         displayShareResource(argc, argv, optind, TRUE, extView );
     } else {
+        namebufs = calloc((size_t)argc + 1, sizeof(char *));
+        if (!namebufs) {
+            lserrno = LSE_MALLOC;
+            ls_perror("calloc");
+            exit(-1);
+        }
         while ((achar = getopt(argc, argv, "R:lwo:")) != EOF) {
  	    switch (achar) {
             case 'R':
@@ -586,7 +634,7 @@ main(int argc, char **argv)
                 unknown = 1;
                 continue;
             }
-            namebufs[i] = strdup(hp->h_name);
+            namebufs[i] = strdup(isClus ? argv[optind] : hp->h_name);
             if (namebufs[i] == NULL) {
                 perror("strdup()");
                 exit(-1);
@@ -612,6 +660,11 @@ main(int argc, char **argv)
 	        exit(-1);
 	    }
         }
+
+        for (j = 0; j < i; j++)
+            free(namebufs[j]);
+        free(namebufs);
+        namebufs = NULL;
 
         if (oflag) {
             print_o(hostinfo, numhosts, &formatRequest);

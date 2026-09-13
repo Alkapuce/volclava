@@ -306,7 +306,7 @@ bhosts_get_status(struct hostInfoEnt *host)
 static void
 bhosts_format_limit(int value, char *buf, size_t buflen)
 {
-    if (value < INFINIT_INT)
+    if (value >= 0 && value < INFINIT_INT)
         snprintf(buf, buflen, "%d", value);
     else
         snprintf(buf, buflen, "-");
@@ -334,30 +334,29 @@ bhosts_set_mem_values(struct hostInfoEnt *host, struct lsInfo *lsInfo,
 
     bhosts_init_load_formats(lsInfo);
 
-    totalValue = getLoad(memIndex, host->load, &index);
+    availableValue = getLoad(memIndex, host->load, &index);
     realValue = getLoad(memIndex, host->realLoad, &realIndex);
     if (index < 0 || realIndex < 0 ||
-        totalValue >= INFINIT_LOAD || realValue >= INFINIT_LOAD)
+        availableValue < 0 || realValue < 0 ||
+        availableValue >= INFINIT_LOAD || realValue >= INFINIT_LOAD)
         return;
 
-    reservedValue = totalValue >= realValue
-                    ? totalValue - realValue
-                    : realValue - totalValue;
-    availableValue = totalValue - reservedValue;
-    if (availableValue < 0)
-        availableValue = 0;
+    reservedValue = availableValue >= realValue
+                    ? availableValue - realValue
+                    : realValue - availableValue;
+    totalValue = availableValue + reservedValue;
 
     if ((host->hStatus & HOST_STAT_BUSY) &&
         (LSB_ISBUSYON(host->busySched, index) ||
          LSB_ISBUSYON(host->busyStop, index)))
         busy = TRUE;
 
-    bhosts_format_load_value(memIndex, totalValue, busy, record->totalMem,
+    bhosts_format_load_value(memIndex, totalValue, FALSE, record->totalMem,
                              sizeof(record->totalMem));
     bhosts_format_load_value(memIndex, reservedValue, FALSE,
                              record->reservedMem,
                              sizeof(record->reservedMem));
-    bhosts_format_load_value(memIndex, availableValue, FALSE,
+    bhosts_format_load_value(memIndex, availableValue, busy,
                              record->availableMem,
                              sizeof(record->availableMem));
 }
@@ -377,16 +376,16 @@ bhosts_prepare_fmt_record(struct hostInfoEnt *host, struct lsInfo *lsInfo,
         bhosts_set_mem_values(host, lsInfo, record);
 }
 
-static void
+static const char *
 bhosts_get_fmt_value(struct bhosts_fmt_record *record, const char *field,
                      char *buf, size_t buflen)
 {
     struct hostInfoEnt *host = record->host;
 
     if (strcmp(field, "HOST_NAME") == 0) {
-        snprintf(buf, buflen, "%s", host->host);
+        return host->host && host->host[0] ? host->host : "-";
     } else if (strcmp(field, "STATUS") == 0) {
-        snprintf(buf, buflen, "%s", record->status);
+        return record->status && record->status[0] ? record->status : "-";
     } else if (strcmp(field, "JL_U") == 0) {
         bhosts_format_limit(host->userJobLimit, buf, buflen);
     } else if (strcmp(field, "MAX") == 0) {
@@ -402,18 +401,17 @@ bhosts_get_fmt_value(struct bhosts_fmt_record *record, const char *field,
     } else if (strcmp(field, "RSV") == 0) {
         snprintf(buf, buflen, "%d", host->numRESERVE);
     } else if (strcmp(field, "DISPATCH_WINDOW") == 0) {
-        snprintf(buf, buflen, "%s",
-                 host->windows && host->windows[0] != '\0'
-                 ? host->windows : "-");
+        return host->windows && host->windows[0] ? host->windows : "-";
     } else if (strcmp(field, "AVAILABLE_MEM") == 0) {
-        snprintf(buf, buflen, "%s", record->availableMem);
+        return record->availableMem;
     } else if (strcmp(field, "RESERVED_MEM") == 0) {
-        snprintf(buf, buflen, "%s", record->reservedMem);
+        return record->reservedMem;
     } else if (strcmp(field, "TOTAL_MEM") == 0) {
-        snprintf(buf, buflen, "%s", record->totalMem);
+        return record->totalMem;
     } else {
         snprintf(buf, buflen, "-");
     }
+    return buf;
 }
 
 static void
@@ -443,9 +441,12 @@ prtHostsO(int numReply, struct hostInfoEnt *hInfo,
 
         bhosts_prepare_fmt_record(&hInfo[i], lsInfo, needMem, &record);
         for (j = 0; j < request->num_columns; j++) {
-            bhosts_get_fmt_value(&record, request->columns[j].field->name,
-                                 value, sizeof(value));
-            fmt_output_print_value(stdout, request, j, value);
+            const char *fieldValue;
+
+            fieldValue = bhosts_get_fmt_value(
+                &record, request->columns[j].field->name,
+                value, sizeof(value));
+            fmt_output_print_value(stdout, request, j, fieldValue);
         }
         fmt_output_print_eol(stdout);
     }
@@ -623,21 +624,22 @@ prtHostsShort (int numReply, struct hostInfoEnt  *hInfo)
             first = FALSE;
             prtWord(HOST_NAME_LENGTH,
 		_i18n_msg_get(ls_catd, NL_SETN, 1618, "HOST_NAME"), 0); /* catgets  1618  */
-	    if ( wflag )
+            if (wflag) {
                 prtWord(HOST_STATUS_LENGTH, I18N_STATUS, 0);
-            else
+            } else {
                 prtWord(HOST_STATUS_SHORT, I18N_STATUS, 0);
+            }
 
-		if (lsbMode_ & LSB_MODE_BATCH)
-                    prtWord(HOST_JL_U_LENGTH, I18N_JL_U, -1);
+            if (lsbMode_ & LSB_MODE_BATCH)
+                prtWord(HOST_JL_U_LENGTH, I18N_JL_U, -1);
 
-                prtWord(HOST_MAX_LENGTH,   I18N_MAX, -1);
-                prtWord(HOST_NJOBS_LENGTH, I18N_NJOBS, -1);
-                prtWord(HOST_RUN_LENGTH,   I18N_RUN, -1);
-                prtWord(HOST_SSUSP_LENGTH, I18N_SSUSP, -1);
-                prtWord(HOST_USUSP_LENGTH, I18N_USUSP, -1);
-                prtWord(HOST_RSV_LENGTH,   I18N_RSV, -1);
-                printf("\n");
+            prtWord(HOST_MAX_LENGTH,   I18N_MAX, -1);
+            prtWord(HOST_NJOBS_LENGTH, I18N_NJOBS, -1);
+            prtWord(HOST_RUN_LENGTH,   I18N_RUN, -1);
+            prtWord(HOST_SSUSP_LENGTH, I18N_SSUSP, -1);
+            prtWord(HOST_USUSP_LENGTH, I18N_USUSP, -1);
+            prtWord(HOST_RSV_LENGTH,   I18N_RSV, -1);
+            printf("\n");
         };
 
         if ( repeatHost (i, hInfo) )
@@ -679,26 +681,27 @@ prtHostsShort (int numReply, struct hostInfoEnt  *hInfo)
         else
             strcpy(maxJobs,  prtDash(HOST_MAX_LENGTH));
 
-	if ( wflag )
+        if (wflag) {
             prtWordL(HOST_STATUS_LENGTH, status);
-	else
+        } else {
             prtWordL(HOST_STATUS_SHORT, status);
+        }
 
-	    if ( lsbMode_ & LSB_MODE_BATCH )
-		printf("%s", userJobLimit);
+        if (lsbMode_ & LSB_MODE_BATCH)
+            printf("%s", userJobLimit);
 
-            sprintf(fomt, "%%s%%%dd %%%dd %%%dd %%%dd %%%dd\n",
-                                  HOST_NJOBS_LENGTH,
-                                  HOST_RUN_LENGTH,
-                                  HOST_SSUSP_LENGTH,
-                                  HOST_USUSP_LENGTH,
-                                  HOST_RSV_LENGTH);
+        sprintf(fomt, "%%s%%%dd %%%dd %%%dd %%%dd %%%dd\n",
+                      HOST_NJOBS_LENGTH,
+                      HOST_RUN_LENGTH,
+                      HOST_SSUSP_LENGTH,
+                      HOST_USUSP_LENGTH,
+                      HOST_RSV_LENGTH);
 
-            printf(fomt,
-                   maxJobs,
-		   hPtr->numJobs,
-		   hPtr->numRUN, hPtr->numSSUSP, hPtr->numUSUSP,
-		   hPtr->numRESERVE);
+        printf(fomt,
+               maxJobs,
+               hPtr->numJobs,
+               hPtr->numRUN, hPtr->numSSUSP, hPtr->numUSUSP,
+               hPtr->numRESERVE);
 
     }
 
@@ -950,14 +953,16 @@ static void
 bhosts_init_load_formats(struct lsInfo *lsInfo)
 {
     int curLoadNum;
+    int formatCount;
     int i;
 
     if (fmt)
         return;
 
     curLoadNum = lsInfo->numIndx + 1;
+    formatCount = MAX(curLoadNum + 2, NBUILTINDEX + 2);
     if (!(fmt = (struct indexFmt *)
-          malloc((curLoadNum + 2) * sizeof(struct indexFmt)))) {
+          calloc(formatCount, sizeof(struct indexFmt)))) {
         lsberrno = LSBE_NO_MEM;
         lsb_perror("print_long");
         exit(-1);
@@ -1025,7 +1030,7 @@ makeFields(struct hostInfoEnt *host,
 
     nf = 0;
     for(j=0; dispindex[j] && j < host->nIdx; j++, nf++) {
-	int newIndexLen;
+	int newIndexLen = 0;
 
         id = nameToFmt(dispindex[j]);
         if (id == DEFAULT_FMT)
@@ -1071,9 +1076,7 @@ makeFields(struct hostInfoEnt *host,
             sp = stripSpaces(tmpfield);
         }
         if (id == DEFAULT_FMT && newIndexLen >= 7){
-	    char newFmt[10];
-	    sprintf(newFmt, " %s%d%s", "%", newIndexLen, "s");
-	    sprintf(loadval[j], newFmt, sp);
+	    snprintf(loadval[j], MAXFIELDSIZE, " %*s", newIndexLen, sp);
 	}
 	else
 	    sprintf(loadval[j], fmt[id].hdr, sp);

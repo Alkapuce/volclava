@@ -325,6 +325,16 @@ MAXMEM, MAXSWP, and MAXTMP use the unit configured by
 \fBLSF_UNIT_FOR_LIMITS\fR in lsf.conf. The default unit is M.
 
 .PP
+RESOURCES is emitted as one complete parenthesized list unless the user
+selects an explicit width. RUN_WINDOWS is "always open" for a server host
+with no configured window and a hyphen for a client-only host. Other
+unavailable values are displayed as a hyphen.
+
+.PP
+The delimiter is emitted literally between fields. The command does not add
+CSV quoting or escaping when a field contains the delimiter.
+
+.PP
 Examples:
 
 .IP
