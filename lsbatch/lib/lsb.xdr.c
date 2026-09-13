@@ -394,19 +394,6 @@ bool_t
 xdr_jobInfoReq (XDR *xdrs, struct jobInfoReq *jobInfoReq, struct LSFHeader *hdr)
 {
     int jobArrId, jobArrElemId;
-    int hasOutputFields = hdr && hdr->version >= _VOLCLAVA_VERSION2_3_;
-
-    if (xdrs->x_op == XDR_FREE) {
-        xdr_var_string(xdrs, &jobInfoReq->userName);
-        xdr_var_string(xdrs, &jobInfoReq->queue);
-        xdr_var_string(xdrs, &jobInfoReq->host);
-        xdr_var_string(xdrs, &jobInfoReq->jobName);
-        xdr_var_string(xdrs, &jobInfoReq->outputFields);
-        return TRUE;
-    }
-
-    if (xdrs->x_op == XDR_DECODE)
-        jobInfoReq->outputFields = NULL;
 
     if (!xdr_var_string(xdrs, &jobInfoReq->userName))
 	return (FALSE);
@@ -428,10 +415,6 @@ xdr_jobInfoReq (XDR *xdrs, struct jobInfoReq *jobInfoReq, struct LSFHeader *hdr)
     }
     if (xdrs->x_op == XDR_DECODE) {
 	jobId32To64(&jobInfoReq->jobId,jobArrId,jobArrElemId);
-    }
-    if (hasOutputFields) {
-        if (!xdr_var_string(xdrs, &jobInfoReq->outputFields))
-            return (FALSE);
     }
 
     return(TRUE);
@@ -1349,16 +1332,12 @@ xdr_infoReq (XDR *xdrs, struct infoReq *infoReq,
                  struct LSFHeader *hdr)
 {
     int i;
-    int hasOutputFields = hdr && hdr->version >= _VOLCLAVA_VERSION2_3_;
 
     if(xdrs->x_op == XDR_FREE){
-        if (infoReq->names) {
-            for (i = 0; i < infoReq->numNames + 2; i++)
-                FREEUP(infoReq->names[i]);
-        }
+        for (i = 0; i < infoReq->numNames + 2; i++)
+            FREEUP(infoReq->names[i]);
         FREEUP(infoReq->names);
         FREEUP(infoReq->resReq);
-        FREEUP(infoReq->outputFields);
         return (TRUE);
     }
 
@@ -1370,7 +1349,6 @@ xdr_infoReq (XDR *xdrs, struct infoReq *infoReq,
         return (FALSE);
 
     if (xdrs->x_op == XDR_DECODE) {
-        infoReq->outputFields = NULL;
         if ((infoReq->names = (char **)calloc (infoReq->numNames + 2, sizeof(char *))) == NULL) {
             return(FALSE);
         }
@@ -1394,10 +1372,6 @@ xdr_infoReq (XDR *xdrs, struct infoReq *infoReq,
 
     if (!xdr_var_string(xdrs, &infoReq->resReq))
         return (FALSE);
-    if (hasOutputFields) {
-        if (!xdr_var_string(xdrs, &infoReq->outputFields))
-            return (FALSE);
-    }
 
     return(TRUE);
 
@@ -2291,3 +2265,4 @@ xdrsize_QueueInfoReply(struct queueInfoReply * qInfoReply)
 
     return len;
 }
+

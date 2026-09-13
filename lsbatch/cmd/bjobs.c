@@ -155,11 +155,8 @@ main (int argc, char **argv)
     char *qHost = NULL;
     char *qUser = NULL;
     struct fmt_request formatRequest = {0};
-    char outputFields[MAXLINELEN];
-    int outputFieldsLen = 0;
 
     rc = _i18n_init ( I18N_CAT_MIN );
-    outputFields[0] = '\0';
 
     if (lsb_init(argv[0]) < 0) {
         lsb_perror("lsb_init");
@@ -179,14 +176,6 @@ main (int argc, char **argv)
     if (format == O_FORMAT) {
         if (bjobs_parse_fmt_request(fieldName, &formatRequest) < 0)
             exit(99);
-        outputFieldsLen = fmt_output_fields_string(&formatRequest,
-                                                   outputFields,
-                                                   sizeof(outputFields));
-        if (outputFieldsLen < 0 || outputFieldsLen > sizeof(outputFields)) {
-            fprintf(stderr, "custom output field list is too long.\n");
-            fmt_output_free(&formatRequest);
-            exit(99);
-        }
     }
 
     if ((format == LONG_FORMAT || format == UF_FORMAT) && (options & PEND_JOB))
@@ -223,19 +212,12 @@ main (int argc, char **argv)
         exit(-1);
     }
 
-    if (format == O_FORMAT && lsb_set_custom_output_fields(outputFields) < 0) {
-        lsb_perror("lsb_set_custom_output_fields");
-        exit(-1);
-    }
     TIMEIT(0, (jInfoH = lsb_openjobinfo_a(jobId,
                                           jobName,
                                           user,
                                           queue,
                                           host,
                                           options)), "lsb_openjobinfo_a");
-    if (format == O_FORMAT)
-        lsb_set_custom_output_fields(NULL);
-
     if (jInfoH == NULL) {
 
         if (numJids >= 1) {

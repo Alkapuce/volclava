@@ -76,11 +76,10 @@ typedef unsigned long long LS_UNS_LONG_INT;
 
 /* This is our current version presented in the event file.
  */
-#define VOLCLAVA_VERSION        _VOLCLAVA_VERSION2_3_
+#define VOLCLAVA_VERSION        _VOLCLAVA_VERSION2_2_
 #define _VOLCLAVA_VERSION2_0_   20 /*volclava 2.0*/
 #define _VOLCLAVA_VERSION2_1_   21 /*volclava 2.1*/
 #define _VOLCLAVA_VERSION2_2_   22 /*volclava 2.2*/
-#define _VOLCLAVA_VERSION2_3_   23 /*volclava 2.3*/
 
 #define LSF_DEFAULT_SOCKS       15
 #define MAXLINELEN              PATH_MAX
@@ -885,7 +884,6 @@ extern struct lsSharedResourceInfo *ls_sharedresourceinfo(char **, int *, char *
 extern char    *ls_getmastername(void);
 extern char    *ls_getmastername2(void);
 extern char    *ls_getmyhostname(void);
-extern int     ls_set_custom_output_fields(const char *);
 extern struct  hostInfo *ls_gethostinfo(char *, int *, char **, int, int);
 extern char    *ls_getISVmode(void);
 

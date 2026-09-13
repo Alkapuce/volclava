@@ -34,7 +34,6 @@ struct decisionReq {
     char      resReq[MAXLINELEN];
     int       numPrefs;
     char      **preferredHosts;
-    char      *outputFields;
 };
 
 struct placeReply {

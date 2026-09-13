@@ -25,7 +25,7 @@
 void load2Str();
 static void prtQueuesLong (int, struct queueInfoEnt *);
 static void prtQueuesShort (int, struct queueInfoEnt *);
-static void prtQueuesO(int, struct queueInfoEnt *, char *);
+static void prtQueuesO(int, struct queueInfoEnt *, const struct fmt_request *);
 static void printShareAcctTree(struct shareAcctInfoEnt *, char *);
 static void prtShareAcctHeader();
 static void prtShareAcct(struct shareAcctInfoEnt *);
@@ -119,13 +119,10 @@ main(int argc, char **argv)
     int cc, defaultQ = FALSE;
     char *host = NULL, *user = NULL;
     char *fieldName = NULL;
-    struct fmt_request formatCheck;
+    struct fmt_request formatRequest = {0};
     char fmtErrbuf[MAXLINELEN];
-    char outputFields[MAXLINELEN];
-    int outputFieldsLen = 0;
 
     numQueues = 0;
-    outputFields[0] = '\0';
 
     _i18n_init ( I18N_CAT_MIN );
 
@@ -177,19 +174,10 @@ main(int argc, char **argv)
     }
     if (oflag) {
         if (fmt_output_parse(fieldName, bqueues_fields, BQUEUES_NUM_FIELDS,
-                             &formatCheck, fmtErrbuf, sizeof(fmtErrbuf)) < 0) {
+                             &formatRequest, fmtErrbuf, sizeof(fmtErrbuf)) < 0) {
             fprintf(stderr, "%s\n", fmtErrbuf);
             exit(99);
         }
-        outputFieldsLen = fmt_output_fields_string(&formatCheck,
-                                                   outputFields,
-                                                   sizeof(outputFields));
-        if (outputFieldsLen < 0 || outputFieldsLen > sizeof(outputFields)) {
-            fprintf(stderr, "custom output field list is too long.\n");
-            fmt_output_free(&formatCheck);
-            exit(99);
-        }
-        fmt_output_free(&formatCheck);
     }
 
     numQueues = getNames(argc,
@@ -203,18 +191,11 @@ main(int argc, char **argv)
     else
         queues = NULL;
 
-    if (oflag && lsb_set_custom_output_fields(outputFields) < 0) {
-        lsb_perror("lsb_set_custom_output_fields");
-        exit(-1);
-    }
     TIMEIT(0, (queueInfo = lsb_queueinfo(queues,
                                          &numQueues,
                                          host,
                                          user,
                                          0)), "lsb_queueinfo");
-    if (oflag)
-        lsb_set_custom_output_fields(NULL);
-
     if (!queueInfo) {
         if (lsberrno == LSBE_BAD_QUEUE && queues)
             lsb_perror(queues[numQueues]);
@@ -236,12 +217,14 @@ main(int argc, char **argv)
     }
 
     if (oflag)
-        prtQueuesO(numQueues, queueInfo, fieldName);
+        prtQueuesO(numQueues, queueInfo, &formatRequest);
     else if (lflag || rflag)
         prtQueuesLong(numQueues, queueInfo);
     else
         prtQueuesShort(numQueues, queueInfo);
 
+    if (oflag)
+        fmt_output_free(&formatRequest);
     return 0;
 }
 
@@ -377,31 +360,23 @@ bqueues_get_fmt_value(struct queueInfoEnt *queue, const char *field,
 }
 
 static void
-prtQueuesO(int numQueues, struct queueInfoEnt *queueInfo, char *fieldName)
+prtQueuesO(int numQueues, struct queueInfoEnt *queueInfo,
+           const struct fmt_request *request)
 {
-    struct fmt_request request;
-    char errbuf[MAXLINELEN];
     char value[MAXLINELEN];
     int i, j;
 
-    if (fmt_output_parse(fieldName, bqueues_fields, BQUEUES_NUM_FIELDS,
-                         &request, errbuf, sizeof(errbuf)) < 0) {
-        fprintf(stderr, "%s\n", errbuf);
-        exit(99);
-    }
-
-    fmt_output_print_header(stdout, &request);
+    fmt_output_print_header(stdout, request);
     for (i = 0; i < numQueues; i++) {
-        for (j = 0; j < request.num_columns; j++) {
+        for (j = 0; j < request->num_columns; j++) {
             bqueues_get_fmt_value(&queueInfo[i],
-                                  request.columns[j].field->name,
+                                  request->columns[j].field->name,
                                   value, sizeof(value));
-            fmt_output_print_value(stdout, &request, j, value);
+            fmt_output_print_value(stdout, request, j, value);
         }
         fmt_output_print_eol(stdout);
     }
 
-    fmt_output_free(&request);
 }
 
 static void

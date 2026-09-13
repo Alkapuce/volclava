@@ -401,18 +401,10 @@ hostInfoReq(XDR *xdrs,
     initResVal(&resVal);
 
     ignDedicatedResource = TRUE;
-    memset(&hostInfoRequest, 0, sizeof(struct decisionReq));
 
     if (! xdr_decisionReq(xdrs, &hostInfoRequest, reqHdr)) {
         limReplyCode = LIME_BAD_DATA;
-        xdr_lsffree(xdr_decisionReq, (char *) &hostInfoRequest, reqHdr);
         goto Reply1;
-    }
-    if ((logclass & (LC_TRACE | LC_COMM))
-        && hostInfoRequest.outputFields != NULL
-        && hostInfoRequest.outputFields[0] != '\0') {
-        ls_syslog(LOG_DEBUG, "%s: custom output fields: %s",
-                  fname, hostInfoRequest.outputFields);
     }
 
     if (! (hostInfoRequest.ofWhat == OF_HOSTS
@@ -427,7 +419,6 @@ hostInfoReq(XDR *xdrs,
             for (i = 0; i < hostInfoRequest.numPrefs; i++)
                 free(hostInfoRequest.preferredHosts[i]);
             free(hostInfoRequest.preferredHosts);
-            FREEUP(hostInfoRequest.outputFields);
             return;
         }
     }
@@ -529,7 +520,6 @@ Reply:
     for (i = 0; i < hostInfoRequest.numPrefs; i++)
         free(hostInfoRequest.preferredHosts[i]);
     free(hostInfoRequest.preferredHosts);
-    FREEUP(hostInfoRequest.outputFields);
 
 Reply1:
     freeResVal (&resVal);

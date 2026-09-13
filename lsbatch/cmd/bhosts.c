@@ -94,7 +94,7 @@ static void bhosts_format_load_value(char *, float, int, char *, size_t);
 
 static void prtHostsLong (int, struct hostInfoEnt *);
 static void prtHostsShort(int, struct hostInfoEnt *);
-static void prtHostsO(int, struct hostInfoEnt *, char *);
+static void prtHostsO(int, struct hostInfoEnt *, const struct fmt_request *);
 static void prtLoad(struct hostInfoEnt *, struct lsInfo *);
 static void sort_host (int, struct hostInfoEnt *);
 static int repeatHost (int, struct hostInfoEnt *);
@@ -153,14 +153,11 @@ main(int argc, char **argv)
     char **hosts=NULL, **hostPoint, *resReq = NULL, *fieldName = NULL;
     char lflag = FALSE, sOption = FALSE, otherOption = FALSE, oflag = FALSE;
     int numHosts;
-    struct fmt_request formatCheck;
+    struct fmt_request formatRequest = {0};
     char fmtErrbuf[MAXLINELEN];
-    char outputFields[MAXLINELEN];
-    int outputFieldsLen = 0;
 
     _lsb_recvtimeout = 30;
     _i18n_init ( I18N_CAT_MIN );
-    outputFields[0] = '\0';
 
     if (lsb_init(argv[0]) < 0) {
 	lsb_perror("lsb_init");
@@ -227,32 +224,17 @@ main(int argc, char **argv)
     }
     if (oflag) {
         if (fmt_output_parse(fieldName, bhosts_fields, BHOSTS_NUM_FIELDS,
-                             &formatCheck, fmtErrbuf, sizeof(fmtErrbuf)) < 0) {
+                             &formatRequest, fmtErrbuf, sizeof(fmtErrbuf)) < 0) {
             fprintf(stderr, "%s\n", fmtErrbuf);
             exit(99);
         }
-        outputFieldsLen = fmt_output_fields_string(&formatCheck,
-                                                   outputFields,
-                                                   sizeof(outputFields));
-        if (outputFieldsLen < 0 || outputFieldsLen > sizeof(outputFields)) {
-            fprintf(stderr, "custom output field list is too long.\n");
-            fmt_output_free(&formatCheck);
-            exit(99);
-        }
-        fmt_output_free(&formatCheck);
     }
     numHosts = getNames (argc, argv, optind, &hosts, &local, "host");
     if ((local && numHosts == 1) || !numHosts)
         hostPoint = NULL;
     else
         hostPoint = hosts;
-    if (oflag && lsb_set_custom_output_fields(outputFields) < 0) {
-        lsb_perror("lsb_set_custom_output_fields");
-        exit(-1);
-    }
     TIMEIT(0, (hInfo = lsb_hostinfo_ex(hostPoint, &numHosts, resReq, 0)), "lsb_hostinfo");
-    if (oflag)
-        lsb_set_custom_output_fields(NULL);
     if (!hInfo) {
         if (lsberrno == LSBE_BAD_HOST && hostPoint)
             lsb_perror (hosts[numHosts]);
@@ -265,12 +247,14 @@ main(int argc, char **argv)
 	sort_host (numHosts, hInfo);
 
     if (oflag)
-        prtHostsO(numHosts, hInfo, fieldName);
+        prtHostsO(numHosts, hInfo, &formatRequest);
     else if ( lflag )
         prtHostsLong(numHosts, hInfo);
     else
         prtHostsShort(numHosts, hInfo);
 
+    if (oflag)
+        fmt_output_free(&formatRequest);
     _i18n_end ( ls_catd );
     exit(0);
 
@@ -285,7 +269,7 @@ struct bhosts_fmt_record {
 };
 
 static int
-bhosts_request_has_field(struct fmt_request *request, const char *field)
+bhosts_request_has_field(const struct fmt_request *request, const char *field)
 {
     int i;
 
@@ -433,48 +417,39 @@ bhosts_get_fmt_value(struct bhosts_fmt_record *record, const char *field,
 }
 
 static void
-prtHostsO(int numReply, struct hostInfoEnt *hInfo, char *fieldName)
+prtHostsO(int numReply, struct hostInfoEnt *hInfo,
+          const struct fmt_request *request)
 {
-    struct fmt_request request;
     struct bhosts_fmt_record record;
     struct lsInfo *lsInfo = NULL;
-    char errbuf[MAXLINELEN];
     char value[MAXLINELEN];
     int needMem, i, j;
 
-    if (fmt_output_parse(fieldName, bhosts_fields, BHOSTS_NUM_FIELDS,
-                         &request, errbuf, sizeof(errbuf)) < 0) {
-        fprintf(stderr, "%s\n", errbuf);
-        exit(99);
-    }
-
-    needMem = bhosts_request_has_field(&request, "AVAILABLE_MEM") ||
-              bhosts_request_has_field(&request, "RESERVED_MEM") ||
-              bhosts_request_has_field(&request, "TOTAL_MEM");
+    needMem = bhosts_request_has_field(request, "AVAILABLE_MEM") ||
+              bhosts_request_has_field(request, "RESERVED_MEM") ||
+              bhosts_request_has_field(request, "TOTAL_MEM");
     if (needMem) {
         if ((lsInfo = ls_info()) == NULL) {
             ls_perror("ls_info");
-            fmt_output_free(&request);
             exit(-1);
         }
         lsInfoPtr = lsInfo;
     }
 
-    fmt_output_print_header(stdout, &request);
+    fmt_output_print_header(stdout, request);
     for (i = 0; i < numReply; i++) {
         if (repeatHost(i, hInfo))
             continue;
 
         bhosts_prepare_fmt_record(&hInfo[i], lsInfo, needMem, &record);
-        for (j = 0; j < request.num_columns; j++) {
-            bhosts_get_fmt_value(&record, request.columns[j].field->name,
+        for (j = 0; j < request->num_columns; j++) {
+            bhosts_get_fmt_value(&record, request->columns[j].field->name,
                                  value, sizeof(value));
-            fmt_output_print_value(stdout, &request, j, value);
+            fmt_output_print_value(stdout, request, j, value);
         }
         fmt_output_print_eol(stdout);
     }
 
-    fmt_output_free(&request);
 }
 
 static void

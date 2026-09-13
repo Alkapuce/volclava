@@ -129,10 +129,9 @@ lsb_hostinfo_ex (char **hosts, int *numHosts, char *resReq, int options)
     } else
 	  hostInfoReq.resReq = "";
 
-    hostInfoReq.outputFields = lsb_get_custom_output_fields_();
 
     mbdReqtype = BATCH_HOST_INFO;
-    cc = sizeof(struct infoReq) + cc * MAXHOSTNAMELEN + cc + MAXLINELEN + 100;
+    cc = sizeof(struct infoReq) + cc * MAXHOSTNAMELEN + cc + 100;
     if ((request_buf = malloc (cc)) == NULL) {
         lsberrno = LSBE_NO_MEM;
         return(NULL);
@@ -187,3 +186,4 @@ lsb_hostinfo_ex (char **hosts, int *numHosts, char *resReq, int options)
     return(NULL);
 
 } 
+
