@@ -123,6 +123,7 @@ main(int argc, char **argv)
     char *fieldName = NULL;
     struct fmt_request formatRequest = {0};
     char fmtErrbuf[MAXLINELEN];
+    char *outputFields = NULL;
 
     numQueues = 0;
 
@@ -180,6 +181,12 @@ main(int argc, char **argv)
             fprintf(stderr, "%s\n", fmtErrbuf);
             exit(99);
         }
+        outputFields = fmt_output_fields_dup(&formatRequest);
+        if (!outputFields) {
+            fmt_output_free(&formatRequest);
+            lsb_perror("fmt_output_fields_dup");
+            exit(99);
+        }
     }
 
     numQueues = getNames(argc,
@@ -193,11 +200,15 @@ main(int argc, char **argv)
     else
         queues = NULL;
 
-    TIMEIT(0, (queueInfo = lsb_queueinfo(queues,
-                                         &numQueues,
-                                         host,
-                                         user,
-                                         0)), "lsb_queueinfo");
+    TIMEIT(0, (queueInfo = lsb_queueinfo_fields(queues,
+                                                &numQueues,
+                                                host,
+                                                user,
+                                                0,
+                                                outputFields)),
+           "lsb_queueinfo_fields");
+    free(outputFields);
+    outputFields = NULL;
     if (!queueInfo) {
         if (lsberrno == LSBE_BAD_QUEUE && queues)
             lsb_perror(queues[numQueues]);

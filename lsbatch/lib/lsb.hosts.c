@@ -36,6 +36,13 @@ lsb_hostinfo (char **hosts, int *numHosts)
 struct hostInfoEnt * 
 lsb_hostinfo_ex (char **hosts, int *numHosts, char *resReq, int options)
 {
+    return lsb_hostinfo_ex_fields(hosts, numHosts, resReq, options, NULL);
+}
+
+struct hostInfoEnt *
+lsb_hostinfo_ex_fields(char **hosts, int *numHosts, char *resReq, int options,
+                       const char *outputFields)
+{
     mbdReqType mbdReqtype;
     XDR xdrs;
     struct LSFHeader hdr;
@@ -129,7 +136,7 @@ lsb_hostinfo_ex (char **hosts, int *numHosts, char *resReq, int options)
     } else
 	  hostInfoReq.resReq = "";
 
-    hostInfoReq.outputFields = lsb_get_custom_output_fields_();
+    hostInfoReq.outputFields = (char *)(outputFields ? outputFields : "");
 
     mbdReqtype = BATCH_HOST_INFO;
     cc = sizeof(struct infoReq) + cc * MAXHOSTNAMELEN + cc + MAXLINELEN + 100;

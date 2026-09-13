@@ -9,7 +9,8 @@
 #include <time.h>
 
 extern int ensureJobListCapacity(void ***, int, int *, int);
-extern int packJobInfo(struct jData *, int, char **, int, int, int);
+extern int packJobInfo(struct jData *, int, char **, int, int, int,
+                       const char *);
 extern int findLastJob(int, struct jData *, struct jData **);
 
 long long syncShmXdrBufferSize = 0;     /* SHM XDR ring size in bytes. */
@@ -262,7 +263,7 @@ addJobToSyncShm(struct jData *job, int parentIndex)
     if (getShmAttachCount(shm->shmId) <= 1)
         return -1;
 
-    xdrLen = packJobInfo(job, 0, &xdrBuf, 0, 0, 0);
+    xdrLen = packJobInfo(job, 0, &xdrBuf, 0, 0, 0, NULL);
     if (xdrLen < 0 || xdrBuf == NULL)
         return -1;
 

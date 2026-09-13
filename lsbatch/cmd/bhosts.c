@@ -155,6 +155,7 @@ main(int argc, char **argv)
     int numHosts;
     struct fmt_request formatRequest = {0};
     char fmtErrbuf[MAXLINELEN];
+    char *outputFields = NULL;
 
     _lsb_recvtimeout = 30;
     _i18n_init ( I18N_CAT_MIN );
@@ -228,13 +229,23 @@ main(int argc, char **argv)
             fprintf(stderr, "%s\n", fmtErrbuf);
             exit(99);
         }
+        outputFields = fmt_output_fields_dup(&formatRequest);
+        if (!outputFields) {
+            fmt_output_free(&formatRequest);
+            lsb_perror("fmt_output_fields_dup");
+            exit(99);
+        }
     }
     numHosts = getNames (argc, argv, optind, &hosts, &local, "host");
     if ((local && numHosts == 1) || !numHosts)
         hostPoint = NULL;
     else
         hostPoint = hosts;
-    TIMEIT(0, (hInfo = lsb_hostinfo_ex(hostPoint, &numHosts, resReq, 0)), "lsb_hostinfo");
+    TIMEIT(0, (hInfo = lsb_hostinfo_ex_fields(hostPoint, &numHosts, resReq, 0,
+                                              outputFields)),
+           "lsb_hostinfo_ex_fields");
+    free(outputFields);
+    outputFields = NULL;
     if (!hInfo) {
         if (lsberrno == LSBE_BAD_HOST && hostPoint)
             lsb_perror (hosts[numHosts]);

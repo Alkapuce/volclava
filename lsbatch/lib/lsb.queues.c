@@ -26,6 +26,14 @@
 struct queueInfoEnt *
 lsb_queueinfo (char **queues, int *numQueues, char *hosts, char *users, int options)
 {
+    return lsb_queueinfo_fields(queues, numQueues, hosts, users, options,
+                                NULL);
+}
+
+struct queueInfoEnt *
+lsb_queueinfo_fields(char **queues, int *numQueues, char *hosts, char *users,
+                     int options, const char *outputFields)
+{
     mbdReqType mbdReqtype;
     static struct infoReq queueInfoReq;         
     static struct queueInfoReply reply;
@@ -124,7 +132,7 @@ lsb_queueinfo (char **queues, int *numQueues, char *hosts, char *users, int opti
             clusterName = hosts;
     }
     queueInfoReq.resReq = "";
-    queueInfoReq.outputFields = lsb_get_custom_output_fields_();
+    queueInfoReq.outputFields = (char *)(outputFields ? outputFields : "");
 
     
 

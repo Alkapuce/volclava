@@ -49,6 +49,7 @@ int fmt_output_parse(const char *format, const struct fmt_field_def *fields,
 void fmt_output_free(struct fmt_request *request);
 int fmt_output_fields_string(const struct fmt_request *request,
                              char *buf, size_t buflen);
+char *fmt_output_fields_dup(const struct fmt_request *request);
 
 void fmt_output_print_header(FILE *out, const struct fmt_request *request);
 void fmt_output_print_value(FILE *out, const struct fmt_request *request,

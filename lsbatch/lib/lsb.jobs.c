@@ -52,6 +52,15 @@ struct jobInfoHead *
 lsb_openjobinfo_a (LS_LONG_INT jobId, char *jobName, char *userName,
                  char *queueName, char *hostName, int options)
 {
+    return lsb_openjobinfo_a_fields(jobId, jobName, userName, queueName,
+                                    hostName, options, NULL);
+}
+
+struct jobInfoHead *
+lsb_openjobinfo_a_fields(LS_LONG_INT jobId, char *jobName, char *userName,
+                         char *queueName, char *hostName, int options,
+                         const char *outputFields)
+{
     static __thread int first = TRUE;
     static __thread struct jobInfoReq jobInfoReq;
     static __thread struct jobInfoHead jobInfoHead;
@@ -153,7 +162,7 @@ lsb_openjobinfo_a (LS_LONG_INT jobId, char *jobName, char *userName,
 	return(NULL);
     }
     jobInfoReq.jobId = jobId;
-    jobInfoReq.outputFields = lsb_get_custom_output_fields_();
+    jobInfoReq.outputFields = (char *)(outputFields ? outputFields : "");
 
 
     mbdReqtype = BATCH_JOB_INFO;

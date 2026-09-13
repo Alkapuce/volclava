@@ -403,6 +403,27 @@ fmt_output_fields_string(const struct fmt_request *request,
     return (int)needed;
 }
 
+char *
+fmt_output_fields_dup(const struct fmt_request *request)
+{
+    char *fields;
+    int needed;
+
+    needed = fmt_output_fields_string(request, NULL, 0);
+    if (needed <= 0)
+        return NULL;
+
+    fields = malloc((size_t)needed);
+    if (!fields)
+        return NULL;
+    if (fmt_output_fields_string(request, fields, (size_t)needed) != needed) {
+        free(fields);
+        return NULL;
+    }
+
+    return fields;
+}
+
 void
 fmt_output_print_header(FILE *out, const struct fmt_request *request)
 {

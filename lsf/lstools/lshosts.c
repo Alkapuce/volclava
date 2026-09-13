@@ -519,6 +519,7 @@ main(int argc, char **argv)
     int isClus;
     struct fmt_request formatRequest = {0};
     char fmtErrbuf[MAXLINELEN];
+    char *outputFields = NULL;
 
 
     _i18n_init ( I18N_CAT_MIN );
@@ -613,6 +614,12 @@ main(int argc, char **argv)
                 fprintf(stderr, "%s\n", fmtErrbuf);
                 exit(99);
             }
+            outputFields = fmt_output_fields_dup(&formatRequest);
+            if (!outputFields) {
+                fmt_output_free(&formatRequest);
+                ls_perror("fmt_output_fields_dup");
+                exit(99);
+            }
         }
 
 	        i=0;
@@ -646,15 +653,19 @@ main(int argc, char **argv)
             exit(-1);
 
         if (i == 0) {
-            TIMEIT(0, (hostinfo = ls_gethostinfo(resReq, &numhosts, NULL, 0,
-                                                 options)), "ls_gethostinfo");
+            TIMEIT(0, (hostinfo = ls_gethostinfo_fields(resReq, &numhosts,
+                                                        NULL, 0, options,
+                                                        outputFields)),
+                   "ls_gethostinfo_fields");
             if (hostinfo == NULL) {
                 ls_perror("ls_gethostinfo()");
                 exit(-1);
             }
         } else {
-    	    TIMEIT(0, (hostinfo = ls_gethostinfo(resReq, &numhosts, namebufs,
-                                                 i, 0)), "ls_gethostinfo");
+	    TIMEIT(0, (hostinfo = ls_gethostinfo_fields(resReq, &numhosts,
+                                                        namebufs, i, 0,
+                                                        outputFields)),
+                   "ls_gethostinfo_fields");
 	    if (hostinfo == NULL) {
 	        ls_perror("ls_gethostinfo");
 	        exit(-1);
@@ -667,6 +678,8 @@ main(int argc, char **argv)
         namebufs = NULL;
 
         if (oflag) {
+            free(outputFields);
+            outputFields = NULL;
             print_o(hostinfo, numhosts, &formatRequest);
             fmt_output_free(&formatRequest);
             _i18n_end ( ls_catd );

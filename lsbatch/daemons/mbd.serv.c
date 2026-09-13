@@ -33,10 +33,11 @@ extern  bool_t xdr_resourceInfoReply (XDR *, struct resourceInfoReply *,
                                       struct LSFHeader *);
 extern bool_t xdr_resourceInfoReq(XDR *, struct resourceInfoReq *,
                                   struct LSFHeader *);
+extern int freeShareAcctInfoEnt(struct shareAcctInfoEnt *);
 
 extern char *jgrpNodeParentPath(struct jgTreeNode *);
 static int packJgrpInfo(struct jgTreeNode *, int, char **, int, int);
-int packJobInfo(struct jData *, int, char **, int, int, int);
+int packJobInfo(struct jData *, int, char **, int, int, int, const char *);
 static void initSubmit(int *, struct submitReq *, struct submitMbdReply *);
 static int sendBack(int, struct submitReq *, struct submitMbdReply *, int);
 static int sendBackPack(int, int, int, struct submitMbdReply *, int, int, int);
@@ -52,9 +53,203 @@ static int selectQmbdSyncJgrpsByMode(int, struct jobInfoReq *,
                                      struct nodeList **,
                                      struct jobMetaData ***, int *);
 static int mergeQmbdSyncReply(int, int);
+static int outputFieldRequested(const char *, const char *);
+static void projectJobInfoReply(struct jobInfoReply *, const char *);
+static void projectHostDataReply(struct hostDataReply *, const char *);
+static void projectQueueInfoReply(struct queueInfoReply *, const char *);
 extern void closeSession(int);
 
 struct controlReq mbdCtrlReq;
+
+static int
+outputFieldRequested(const char *fields, const char *name)
+{
+    const char *p;
+    size_t nameLen;
+
+    if (!fields || fields[0] == '\0' || !name)
+        return FALSE;
+
+    nameLen = strlen(name);
+    p = fields;
+    while (*p) {
+        const char *start;
+        size_t len;
+
+        while (*p && isspace((unsigned char)*p))
+            p++;
+        start = p;
+        while (*p && !isspace((unsigned char)*p))
+            p++;
+        len = (size_t)(p - start);
+        if (len == nameLen && strncasecmp(start, name, nameLen) == 0)
+            return TRUE;
+    }
+
+    return FALSE;
+}
+
+static void
+replaceOwnedString(char **value, char *replacement)
+{
+    FREEUP(*value);
+    *value = safeSave(replacement ? replacement : "");
+}
+
+static void
+projectHostDataReply(struct hostDataReply *reply, const char *fields)
+{
+    int needsMemoryLoads;
+    int i;
+
+    if (!reply || !fields || fields[0] == '\0')
+        return;
+
+    needsMemoryLoads = outputFieldRequested(fields, "AVAILABLE_MEM")
+                       || outputFieldRequested(fields, "RESERVED_MEM")
+                       || outputFieldRequested(fields, "TOTAL_MEM");
+    if (!needsMemoryLoads)
+        reply->nIdx = 0;
+
+    for (i = 0; i < reply->numHosts; i++) {
+        if (!outputFieldRequested(fields, "DISPATCH_WINDOW"))
+            reply->hosts[i].windows = "";
+        reply->hosts[i].actionComment = "";
+    }
+}
+
+static void
+projectQueueInfoReply(struct queueInfoReply *reply, const char *fields)
+{
+    int i;
+
+    if (!reply || !fields || fields[0] == '\0')
+        return;
+
+    reply->nIdx = 0;
+    for (i = 0; i < reply->numQueues; i++) {
+        struct queueInfoEnt *queue = &reply->queues[i];
+
+        if (!outputFieldRequested(fields, "DESCRIPTION"))
+            queue->description = "";
+        if (!outputFieldRequested(fields, "HOSTS"))
+            replaceOwnedString(&queue->hostList, "");
+        if (!outputFieldRequested(fields, "RES_REQ"))
+            replaceOwnedString(&queue->resReq, "");
+
+        replaceOwnedString(&queue->windows, "");
+        replaceOwnedString(&queue->windowsD, "");
+        replaceOwnedString(&queue->defaultHostSpec, "");
+        replaceOwnedString(&queue->userList, "");
+        replaceOwnedString(&queue->hostSpec, "");
+        replaceOwnedString(&queue->admins, "");
+        replaceOwnedString(&queue->preCmd, "");
+        replaceOwnedString(&queue->postCmd, "");
+        replaceOwnedString(&queue->prepostUsername, "");
+        replaceOwnedString(&queue->requeueEValues, "");
+        replaceOwnedString(&queue->resumeCond, "");
+        replaceOwnedString(&queue->stopCond, "");
+        replaceOwnedString(&queue->jobStarter, "");
+        replaceOwnedString(&queue->suspendActCmd, "");
+        replaceOwnedString(&queue->resumeActCmd, "");
+        replaceOwnedString(&queue->terminateActCmd, "");
+        replaceOwnedString(&queue->chkpntDir, "");
+        if (queue->shareAcctTree) {
+            freeShareAcctInfoEnt(queue->shareAcctTree);
+            FREEUP(queue->shareAcctTree);
+        }
+        queue->userShares = "";
+        queue->actionComment = "";
+    }
+}
+
+static void
+projectJobInfoReply(struct jobInfoReply *reply, const char *fields)
+{
+    struct submitReq *bill;
+    int i;
+
+    if (!reply || !fields || fields[0] == '\0')
+        return;
+
+    bill = reply->jobBill;
+    reply->numReasons = 0;
+    reply->nIdx = 0;
+
+    /* USER and PROJ_NAME are required by client-side visibility filters. */
+    if (!outputFieldRequested(fields, "STAT"))
+        reply->status = 0;
+    if (!outputFieldRequested(fields, "EXEC_HOST")) {
+        for (i = 0; i < reply->numToHosts; i++)
+            FREEUP(reply->toHosts[i]);
+        FREEUP(reply->toHosts);
+        reply->numToHosts = 0;
+    }
+    if (!outputFieldRequested(fields, "START_TIME"))
+        reply->startTime = 0;
+    if (!outputFieldRequested(fields, "FINISH_TIME"))
+        reply->endTime = 0;
+    if (!outputFieldRequested(fields, "EXIT_CODE"))
+        reply->exitStatus = 0;
+    if (!outputFieldRequested(fields, "CPU_USED")) {
+        reply->cpuTime = 0;
+        reply->runRusage.utime = 0;
+        reply->runRusage.stime = 0;
+    }
+    if (!outputFieldRequested(fields, "MEM"))
+        reply->runRusage.mem = 0;
+    if (!outputFieldRequested(fields, "SWAP"))
+        reply->runRusage.swap = 0;
+    if (!outputFieldRequested(fields, "PIDS")) {
+        reply->runRusage.npids = 0;
+        reply->runRusage.npgids = 0;
+    }
+
+    if (!outputFieldRequested(fields, "QUEUE"))
+        replaceOwnedString(&bill->queue, "");
+    if (!outputFieldRequested(fields, "FROM_HOST"))
+        replaceOwnedString(&bill->fromHost, "");
+    if (!outputFieldRequested(fields, "JOB_NAME"))
+        replaceOwnedString(&bill->jobName, "");
+    if (!outputFieldRequested(fields, "SUBMIT_TIME"))
+        bill->submitTime = 0;
+    replaceOwnedString(&bill->resReq, "");
+    replaceOwnedString(&bill->dependCond, "");
+    replaceOwnedString(&bill->command, "");
+    replaceOwnedString(&bill->preExecCmd, "");
+    replaceOwnedString(&bill->postExecCmd, "");
+    replaceOwnedString(&bill->mailUser, "");
+    replaceOwnedString(&bill->loginShell, "");
+    replaceOwnedString(&bill->schedHostType, "");
+    replaceOwnedString(&bill->jobDesc, "");
+    replaceOwnedString(&bill->jobFile, "");
+    replaceOwnedString(&bill->inFile, "");
+    replaceOwnedString(&bill->outFile, "");
+    replaceOwnedString(&bill->errFile, "");
+    replaceOwnedString(&bill->inFileSpool, "");
+    replaceOwnedString(&bill->commandSpool, "");
+    replaceOwnedString(&bill->chkpntDir, "");
+    replaceOwnedString(&bill->subHomeDir, "");
+    replaceOwnedString(&bill->cwd, "");
+    replaceOwnedString(&bill->hostSpec, "");
+    if (bill->numAskedHosts > 0) {
+        for (i = 0; i < bill->numAskedHosts; i++)
+            FREEUP(bill->askedHosts[i]);
+        FREEUP(bill->askedHosts);
+        bill->numAskedHosts = 0;
+    }
+    FREEUP(bill->xf);
+    bill->nxf = 0;
+
+    reply->execHome = "";
+    reply->execCwd = "";
+    reply->execUsername = "";
+    reply->parentGroup = "";
+    reply->jName = "";
+    reply->chargedSAAP = "";
+    reply->mergedResReq = "";
+    reply->effeResReq = "";
+}
 
 static int
 ensureNodeListCapacity(struct nodeList **list, int numNodes, int *arraySize)
@@ -502,6 +697,8 @@ do_jobInfoReq(XDR *xdrs,
     int                     syncMode = QMBD_JOB_SYNC_OFF;
     struct hData *hPtr;
     char                   *syncJobName = NULL;
+    char                   *outputFields = NULL;
+    int                     requestOptions = 0;
     if (logclass & (LC_TRACE | LC_COMM))
         ls_syslog(LOG_DEBUG, "%s: Entering this routine...; channel=%d", fname,chfd);
 
@@ -524,6 +721,9 @@ do_jobInfoReq(XDR *xdrs,
             ls_syslog(LOG_DEBUG, "%s: custom output fields: %s",
                       fname, jobInfoReq.outputFields);
         }
+        if (jobInfoReq.outputFields && jobInfoReq.outputFields[0] != '\0')
+            outputFields = safeSave(jobInfoReq.outputFields);
+        requestOptions = jobInfoReq.options;
         syncJobInfoReq = jobInfoReq;
         if (isQmbd)
             syncMode = qmbdJobSyncMode;
@@ -639,7 +839,7 @@ do_jobInfoReq(XDR *xdrs,
     }
 
     i = jobInfoHead.numHosts = 0;
-    if (jobInfoReq.options & HOST_NAME) {
+    if (requestOptions & HOST_NAME) {
         jobInfoHead.hostNames = my_calloc(numofhosts(),
                                           sizeof(char *), fname);
         for (hPtr = (struct hData *)hostList->forw;
@@ -670,6 +870,7 @@ do_jobInfoReq(XDR *xdrs,
                   "xdr_encodeMsg", "jobInfoHead");
         xdr_destroy(&xdrs2);
         FREEUP (jgrplist);
+        FREEUP(outputFields);
         return(-1);
     }
     len = XDR_GETPOS(&xdrs2);
@@ -681,6 +882,7 @@ do_jobInfoReq(XDR *xdrs,
             freeJobHead (&jobInfoHead);
             FREEUP (jgrplist);
             xdr_destroy(&xdrs2);
+            FREEUP(outputFields);
             return(-1);
         }
     }
@@ -689,18 +891,21 @@ do_jobInfoReq(XDR *xdrs,
     xdr_destroy(&xdrs2);
     freeJobHead (&jobInfoHead);
     if (reply != LSBE_NO_ERROR ||
-        (jobInfoReq.options & (JOBID_ONLY|JOBID_ONLY_ALL))) {
+        (requestOptions & (JOBID_ONLY|JOBID_ONLY_ALL))) {
         FREEUP(syncJobMetaList);
         FREEUP (jgrplist);
+        FREEUP(outputFields);
         return(0);
     }
     for (i = 0; i < listSize; i++) {
         if (jgrplist[i].isJData &&
             ((len = packJobInfo ((struct jData *)jgrplist[i].info,
                                  listSize - 1 - i,  &buf, schedule,
-                                 jobInfoReq.options, reqHdr->version)) < 0)) {
+                                 requestOptions, reqHdr->version,
+                                 outputFields)) < 0)) {
             ls_syslog(LOG_ERR, I18N_FUNC_FAIL, fname, "packJobInfo");
             FREEUP (jgrplist);
+            FREEUP(outputFields);
             return(-1);
         }
         if ( !jgrplist[i].isJData &&
@@ -708,6 +913,7 @@ do_jobInfoReq(XDR *xdrs,
                                    listSize - 1 - i, &buf, schedule, reqHdr->version)) < 0)) {
             ls_syslog(LOG_ERR, I18N_FUNC_FAIL, fname, "packJgrpInfo");
             FREEUP (jgrplist);
+            FREEUP(outputFields);
             return(-1);
         }
 
@@ -716,6 +922,7 @@ do_jobInfoReq(XDR *xdrs,
                 ls_syslog(LOG_ERR, I18N_FUNC_FAIL_M, fname, "chanWriteNonBlock_");
                 FREEUP(buf);
                 FREEUP(jgrplist);
+                FREEUP(outputFields);
                 return(-1);
             }
         }
@@ -730,12 +937,14 @@ do_jobInfoReq(XDR *xdrs,
             if (chanWriteQmbdShmJobXdr(chfd, syncJobMetaList[i]) < 0) {
                 FREEUP(syncJobMetaList);
                 FREEUP(jgrplist);
+                FREEUP(outputFields);
                 return(-1);
             }
         }
     }
     FREEUP(syncJobMetaList);
     FREEUP (jgrplist);
+    FREEUP(outputFields);
     if(!isQmbd)
         chanClose_(chfd);
     return(0);
@@ -880,7 +1089,7 @@ packJobInfo(struct jData * jobData,
             int remain,
             char **replyBuf,
             int schedule,
-            int options, int version)
+            int options, int version, const char *outputFields)
 {
     static char fname[] = "packJobInfo";
     struct jobInfoReply jobInfoReply;
@@ -1177,6 +1386,8 @@ packJobInfo(struct jData * jobData,
 
     memcpy(&jobInfoReply.runRusage,
            &jobData->runRusage, sizeof(struct jRusage));
+
+    projectJobInfoReply(&jobInfoReply, outputFields);
 
     len = jobInfoReplyXdrBufLen(&jobInfoReply);
     len += 1024;
@@ -1762,6 +1973,8 @@ do_hostInfoReq(XDR *xdrs,
 
         reply = checkHosts(&hostsReq, &hostsReply);
 
+        projectHostDataReply(&hostsReply, hostsReq.outputFields);
+
         count = hostsReply.numHosts * (sizeof(struct hostInfoEnt)
                                        + MAXLINELEN*2 + MAXHOSTNAMELEN
                                        + hostsReply.nIdx * 4 * sizeof(float)) + 100;
@@ -1931,6 +2144,7 @@ do_queueInfoReq(XDR *xdrs,
                       __func__, qInfoReq.outputFields);
         }
         reply = checkQueues(&qInfoReq, &qInfoReply);
+        projectQueueInfoReply(&qInfoReply, qInfoReq.outputFields);
         len = sizeof(struct LSFHeader);
         len += xdrsize_QueueInfoReply(&qInfoReply);
     }

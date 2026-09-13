@@ -238,8 +238,6 @@ extern LS_REQUEST_T *
 extern int initenv_(struct config_param *, char *);
 extern int readconfenv_(struct config_param *, struct config_param *, char *);
 extern int ls_readconfenv(struct config_param *, char *);
-extern char *ls_get_custom_output_fields_(void);
-
 extern int callLim_(enum limReqCode, void *, bool_t (*)(), void *, bool_t (*)(), char *, int, struct LSFHeader *);
 extern int initLimSock_(void);
 

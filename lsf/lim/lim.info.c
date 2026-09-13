@@ -31,6 +31,34 @@ static int copyResource (struct resourceInfoReply *,
                          struct sharedResource *, int *, char *);
 static void freeResourceInfoReply (struct resourceInfoReply *);
 
+static int
+limOutputFieldRequested(const char *fields, const char *name)
+{
+    const char *p;
+    size_t nameLen;
+
+    if (!fields || fields[0] == '\0' || !name)
+        return FALSE;
+
+    nameLen = strlen(name);
+    p = fields;
+    while (*p) {
+        const char *start;
+        size_t len;
+
+        while (*p && isspace((unsigned char)*p))
+            p++;
+        start = p;
+        while (*p && !isspace((unsigned char)*p))
+            p++;
+        len = (size_t)(p - start);
+        if (len == nameLen && strncasecmp(start, name, nameLen) == 0)
+            return TRUE;
+    }
+
+    return FALSE;
+}
+
 void
 pingReq(XDR *xdrs, struct sockaddr_in *from, struct LSFHeader *reqHdr)
 {
@@ -522,6 +550,51 @@ hostInfoReq(XDR *xdrs,
             infoPtr->flags |= HINFO_SHARED_RESOURCE;
         }
         infoPtr->rexPriority = candidates[i]->rexPriority;
+    }
+
+    if (hostInfoRequest.outputFields
+        && hostInfoRequest.outputFields[0] != '\0') {
+        int needsModel;
+
+        needsModel = limOutputFieldRequested(hostInfoRequest.outputFields,
+                                             "MODEL")
+                     || limOutputFieldRequested(hostInfoRequest.outputFields,
+                                                "CPUF");
+        hostInfoReply.nIndex = 0;
+        for (i = 0; i < ncandidates; i++) {
+            struct shortHInfo *infoPtr = &hostInfoReply.hostMatrix[i];
+
+            if (!limOutputFieldRequested(hostInfoRequest.outputFields,
+                                         "TYPE"))
+                infoPtr->hTypeIndx = -1;
+            if (!needsModel)
+                infoPtr->hModelIndx = -1;
+            if (!limOutputFieldRequested(hostInfoRequest.outputFields,
+                                         "NCPUS")
+                && !limOutputFieldRequested(hostInfoRequest.outputFields,
+                                            "NPROCS"))
+                infoPtr->maxCpus = 0;
+            if (!limOutputFieldRequested(hostInfoRequest.outputFields,
+                                         "MAXMEM"))
+                infoPtr->maxMem = 0;
+            if (!limOutputFieldRequested(hostInfoRequest.outputFields,
+                                         "MAXSWP"))
+                infoPtr->maxSwap = 0;
+            if (!limOutputFieldRequested(hostInfoRequest.outputFields,
+                                         "MAXTMP"))
+                infoPtr->maxTmp = 0;
+            if (!limOutputFieldRequested(hostInfoRequest.outputFields,
+                                         "RESOURCES")) {
+                infoPtr->resClass = 0;
+                infoPtr->nRInt = 0;
+            }
+            if (!limOutputFieldRequested(hostInfoRequest.outputFields,
+                                         "RUN_WINDOWS"))
+                infoPtr->windows = "-";
+            if (!limOutputFieldRequested(hostInfoRequest.outputFields,
+                                         "SERVER"))
+                infoPtr->flags = 0;
+        }
     }
     limReplyCode = LIME_NO_ERR;
 

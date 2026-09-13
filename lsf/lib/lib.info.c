@@ -554,6 +554,14 @@ struct hostInfo *
 ls_gethostinfo(char *resReq, int *numhosts, char **hostlist, int listsize,
                int options)
 {
+    return ls_gethostinfo_fields(resReq, numhosts, hostlist, listsize,
+                                 options, NULL);
+}
+
+struct hostInfo *
+ls_gethostinfo_fields(char *resReq, int *numhosts, char **hostlist,
+                      int listsize, int options, const char *outputFields)
+{
     static char fname[] = "ls_gethostinfo";
     struct decisionReq hostInfoReq;
     static struct hostInfoReply hostInfoReply;
@@ -630,7 +638,7 @@ ls_gethostinfo(char *resReq, int *numhosts, char **hostlist, int listsize,
 
     hostInfoReply.shortLsInfo = &lsInfo;
     hostInfoReq.numHosts=0;
-    hostInfoReq.outputFields = ls_get_custom_output_fields_();
+    hostInfoReq.outputFields = (char *)(outputFields ? outputFields : "");
     cc = callLim_(LIM_GET_HOSTINFO,
                   &hostInfoReq,
                   xdr_decisionReq,

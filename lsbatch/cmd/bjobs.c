@@ -154,6 +154,7 @@ main (int argc, char **argv)
     struct queueInfoEnt *queueInfo;
     char *qHost = NULL;
     char *qUser = NULL;
+    char *outputFields = NULL;
     struct fmt_request formatRequest = {0};
 
     _i18n_init ( I18N_CAT_MIN );
@@ -176,6 +177,12 @@ main (int argc, char **argv)
     if (format == O_FORMAT) {
         if (bjobs_parse_fmt_request(fieldName, &formatRequest) < 0)
             exit(99);
+        outputFields = fmt_output_fields_dup(&formatRequest);
+        if (!outputFields) {
+            fmt_output_free(&formatRequest);
+            lsb_perror("fmt_output_fields_dup");
+            exit(99);
+        }
     }
 
     if ((format == LONG_FORMAT || format == UF_FORMAT) && (options & PEND_JOB))
@@ -212,12 +219,16 @@ main (int argc, char **argv)
         exit(-1);
     }
 
-    TIMEIT(0, (jInfoH = lsb_openjobinfo_a(jobId,
-                                          jobName,
-                                          user,
-                                          queue,
-                                          host,
-                                          options)), "lsb_openjobinfo_a");
+    TIMEIT(0, (jInfoH = lsb_openjobinfo_a_fields(jobId,
+                                                 jobName,
+                                                 user,
+                                                 queue,
+                                                 host,
+                                                 options,
+                                                 outputFields)),
+           "lsb_openjobinfo_a_fields");
+    free(outputFields);
+    outputFields = NULL;
     if (jInfoH == NULL) {
 
         if (numJids >= 1) {
