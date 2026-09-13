@@ -107,9 +107,11 @@ extern bool_t xdr_jobInfoEnt(XDR *,
 			     struct jobInfoEnt *, 
 			     struct LSFHeader *);
 
-extern bool_t xdr_jobInfoReq(XDR *, 
-			     struct jobInfoReq *, 
-			     struct LSFHeader *);
+extern bool_t xdr_jobInfoReq(XDR *,
+                             struct jobInfoReq *,
+                             struct LSFHeader *);
+extern bool_t xdr_jobOutputReply(XDR *, struct jobOutputReply *,
+                                 struct LSFHeader *);
 
 extern bool_t xdr_jobPeekReq(XDR *, 
 			     struct jobPeekReq *, 

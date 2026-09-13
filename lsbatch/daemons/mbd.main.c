@@ -891,6 +891,7 @@ processClient(struct clientNode *client, int *needFree)
             TIMEIT(3, do_queueInfoReq(&xdrs, s, &from, &reqHdr),"do_queueInfoReq()");
             break;
         case BATCH_JOB_INFO:
+        case BATCH_JOB_OUTPUT:
             TIMEIT(3, do_jobInfoReq(&xdrs, s, &from, &reqHdr, schedule),"do_jobInfoReq()");
             break;
         case BATCH_HOST_INFO:
@@ -1237,6 +1238,7 @@ forkOnRequest(mbdReqType req)
         return 0;
 
     if (req == BATCH_JOB_INFO
+        || req == BATCH_JOB_OUTPUT
         || req == BATCH_QUE_INFO
         || req == BATCH_HOST_INFO
         || req == BATCH_GRP_INFO

@@ -73,6 +73,7 @@ typedef enum {
     BATCH_STATUS_CHUNK   = 40,       
     BATCH_JOB_SUB_PACK    = 41,
     BATCH_SHOWCONF       = 42,
+    BATCH_JOB_OUTPUT     = 43,
     BATCH_SET_JOB_ATTR   = 90,
     READY_FOR_OP         = 1023,
     PREPARE_FOR_OP       = 1024,
@@ -251,6 +252,44 @@ struct jobInfoReply {
     char      *effeResReq;
     int       maxMem;
     int       avgMem;
+};
+
+#define JOB_OUTPUT_USER        0x0001
+#define JOB_OUTPUT_STAT        0x0002
+#define JOB_OUTPUT_QUEUE       0x0004
+#define JOB_OUTPUT_FROM_HOST   0x0008
+#define JOB_OUTPUT_EXEC_HOST   0x0010
+#define JOB_OUTPUT_JOB_NAME    0x0020
+#define JOB_OUTPUT_SUBMIT_TIME 0x0040
+#define JOB_OUTPUT_PROJ_NAME   0x0080
+#define JOB_OUTPUT_CPU_USED    0x0100
+#define JOB_OUTPUT_MEM         0x0200
+#define JOB_OUTPUT_SWAP        0x0400
+#define JOB_OUTPUT_PIDS        0x0800
+#define JOB_OUTPUT_START_TIME  0x1000
+#define JOB_OUTPUT_FINISH_TIME 0x2000
+#define JOB_OUTPUT_EXIT_CODE   0x4000
+
+struct jobOutputReply {
+    LS_LONG_INT jobId;
+    unsigned int fields;
+    char *userName;
+    int status;
+    char *queue;
+    char *fromHost;
+    int numExHosts;
+    char **exHosts;
+    char *jobName;
+    time_t submitTime;
+    char *projectName;
+    float cpuTime;
+    int mem;
+    int swap;
+    int npids;
+    struct pidInfo *pidInfo;
+    time_t startTime;
+    time_t endTime;
+    int exitStatus;
 };
 
 struct infoReq {

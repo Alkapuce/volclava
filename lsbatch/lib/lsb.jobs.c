@@ -33,6 +33,77 @@ extern void copyJUsage(struct jRusage *to, struct jRusage *from);
 extern int _lsb_recvtimeout;
 
 static int mbdSock = -1;
+static __thread int compactJobOutput = FALSE;
+static __thread struct jobOutputReply compactReply;
+
+static struct jobInfoEnt *
+readCompactJobOutput(char *buffer, struct LSFHeader *hdr, int *more)
+{
+    static __thread struct jobInfoEnt jobInfo;
+    static char empty[] = "";
+    XDR xdrs;
+
+    xdr_lsffree(xdr_jobOutputReply, (char *)&compactReply, hdr);
+    memset(&compactReply, 0, sizeof(compactReply));
+    xdrmem_create(&xdrs, buffer, XDR_DECODE_SIZE_(hdr->length), XDR_DECODE);
+    if (!xdr_jobOutputReply(&xdrs, &compactReply, hdr)) {
+        xdr_destroy(&xdrs);
+        xdr_lsffree(xdr_jobOutputReply, (char *)&compactReply, hdr);
+        memset(&compactReply, 0, sizeof(compactReply));
+        lsberrno = LSBE_XDR;
+        return NULL;
+    }
+    xdr_destroy(&xdrs);
+
+    memset(&jobInfo, 0, sizeof(jobInfo));
+    jobInfo.jobId = compactReply.jobId;
+    jobInfo.user = compactReply.userName ? compactReply.userName : empty;
+    jobInfo.status = compactReply.status;
+    jobInfo.submit.queue = compactReply.queue ? compactReply.queue : empty;
+    jobInfo.fromHost = compactReply.fromHost ? compactReply.fromHost : empty;
+    jobInfo.numExHosts = compactReply.numExHosts;
+    jobInfo.exHosts = compactReply.exHosts;
+    jobInfo.submit.jobName = compactReply.jobName
+                              ? compactReply.jobName : empty;
+    jobInfo.submitTime = compactReply.submitTime;
+    jobInfo.submit.projectName = compactReply.projectName
+                                  ? compactReply.projectName : empty;
+    jobInfo.cpuTime = compactReply.cpuTime;
+    jobInfo.runRusage.mem = compactReply.mem;
+    jobInfo.runRusage.swap = compactReply.swap;
+    jobInfo.runRusage.npids = compactReply.npids;
+    jobInfo.runRusage.pidInfo = compactReply.pidInfo;
+    jobInfo.startTime = compactReply.startTime;
+    jobInfo.endTime = compactReply.endTime;
+    jobInfo.exitStatus = compactReply.exitStatus;
+
+    jobInfo.submit.command = empty;
+    jobInfo.submit.resReq = empty;
+    jobInfo.submit.inFile = empty;
+    jobInfo.submit.outFile = empty;
+    jobInfo.submit.errFile = empty;
+    jobInfo.submit.hostSpec = empty;
+    jobInfo.submit.chkpntDir = empty;
+    jobInfo.submit.dependCond = empty;
+    jobInfo.submit.preExecCmd = empty;
+    jobInfo.submit.postExecCmd = empty;
+    jobInfo.submit.mailUser = empty;
+    jobInfo.submit.loginShell = empty;
+    jobInfo.cwd = empty;
+    jobInfo.subHomeDir = empty;
+    jobInfo.execHome = empty;
+    jobInfo.execCwd = empty;
+    jobInfo.execUsername = empty;
+    jobInfo.parentGroup = empty;
+    jobInfo.jName = empty;
+    jobInfo.chargedSAAP = empty;
+    jobInfo.mergedResReq = empty;
+    jobInfo.effeResReq = empty;
+
+    if (more)
+        *more = hdr->reserved;
+    return &jobInfo;
+}
 
 int
 lsb_openjobinfo (LS_LONG_INT jobId, char *jobName, char *userName,
@@ -174,7 +245,9 @@ lsb_openjobinfo_a_fields(LS_LONG_INT jobId, char *jobName, char *userName,
         return(NULL);
     }
 
-    mbdReqtype = BATCH_JOB_INFO;
+    compactJobOutput = outputFields && outputFields[0] != '\0'
+                       && !(options & JGRP_ARRAY_INFO);
+    mbdReqtype = compactJobOutput ? BATCH_JOB_OUTPUT : BATCH_JOB_INFO;
     xdrmem_create(&xdrs, request_buf, (u_int)requestSize, XDR_ENCODE);
 
     initLSFHeader_(&hdr);
@@ -250,6 +323,14 @@ lsb_readjobinfo(int *more)
 	closeSession(mbdSock);
         lsberrno = LSBE_EOF;
 	return NULL;
+    }
+
+    if (compactJobOutput) {
+        struct jobInfoEnt *compactInfo;
+
+        compactInfo = readCompactJobOutput(buffer, &hdr, more);
+        free(buffer);
+        return compactInfo;
     }
 
     if (first) {
@@ -447,7 +528,15 @@ lsb_readjobinfo(int *more)
 void
 lsb_closejobinfo()
 {
+     struct LSFHeader hdr;
+
      closeSession(mbdSock);
+     if (compactJobOutput) {
+         memset(&hdr, 0, sizeof(hdr));
+         xdr_lsffree(xdr_jobOutputReply, (char *)&compactReply, &hdr);
+         memset(&compactReply, 0, sizeof(compactReply));
+         compactJobOutput = FALSE;
+     }
 }
 
 int

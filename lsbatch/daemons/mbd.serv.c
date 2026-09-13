@@ -38,6 +38,7 @@ extern int freeShareAcctInfoEnt(struct shareAcctInfoEnt *);
 extern char *jgrpNodeParentPath(struct jgTreeNode *);
 static int packJgrpInfo(struct jgTreeNode *, int, char **, int, int);
 int packJobInfo(struct jData *, int, char **, int, int, int, const char *);
+static int packJobOutput(struct jData *, int, char **, int, const char *);
 static void initSubmit(int *, struct submitReq *, struct submitMbdReply *);
 static int sendBack(int, struct submitReq *, struct submitMbdReply *, int);
 static int sendBackPack(int, int, int, struct submitMbdReply *, int, int, int);
@@ -900,11 +901,16 @@ do_jobInfoReq(XDR *xdrs,
         return(0);
     }
     for (i = 0; i < listSize; i++) {
-        if (jgrplist[i].isJData &&
-            ((len = packJobInfo ((struct jData *)jgrplist[i].info,
-                                 listSize - 1 - i,  &buf, schedule,
-                                 requestOptions, reqHdr->version,
-                                 outputFields)) < 0)) {
+        if (jgrplist[i].isJData
+            && ((reqHdr->opCode == BATCH_JOB_OUTPUT)
+                ? ((len = packJobOutput((struct jData *)jgrplist[i].info,
+                                        listSize - 1 - i, &buf,
+                                        reqHdr->version,
+                                        outputFields)) < 0)
+                : ((len = packJobInfo((struct jData *)jgrplist[i].info,
+                                      listSize - 1 - i, &buf, schedule,
+                                      requestOptions, reqHdr->version,
+                                      outputFields)) < 0))) {
             ls_syslog(LOG_ERR, I18N_FUNC_FAIL, fname, "packJobInfo");
             FREEUP (jgrplist);
             FREEUP(outputFields);
@@ -1424,6 +1430,123 @@ packJobInfo(struct jData * jobData,
     xdr_destroy(&xdrs);
     return (i);
 
+}
+
+static unsigned int
+jobOutputFieldMask(const char *fields)
+{
+    static const struct {
+        const char *name;
+        unsigned int bit;
+    } fieldMap[] = {
+        {"USER", JOB_OUTPUT_USER},
+        {"STAT", JOB_OUTPUT_STAT},
+        {"QUEUE", JOB_OUTPUT_QUEUE},
+        {"FROM_HOST", JOB_OUTPUT_FROM_HOST},
+        {"EXEC_HOST", JOB_OUTPUT_EXEC_HOST},
+        {"JOB_NAME", JOB_OUTPUT_JOB_NAME},
+        {"SUBMIT_TIME", JOB_OUTPUT_SUBMIT_TIME},
+        {"PROJ_NAME", JOB_OUTPUT_PROJ_NAME},
+        {"CPU_USED", JOB_OUTPUT_CPU_USED},
+        {"MEM", JOB_OUTPUT_MEM},
+        {"SWAP", JOB_OUTPUT_SWAP},
+        {"PIDS", JOB_OUTPUT_PIDS},
+        {"START_TIME", JOB_OUTPUT_START_TIME},
+        {"FINISH_TIME", JOB_OUTPUT_FINISH_TIME},
+        {"EXIT_CODE", JOB_OUTPUT_EXIT_CODE}
+    };
+    unsigned int mask;
+    int i;
+
+    mask = JOB_OUTPUT_USER | JOB_OUTPUT_PROJ_NAME;
+    for (i = 0; i < (int)(sizeof(fieldMap) / sizeof(fieldMap[0])); i++) {
+        if (outputFieldRequested(fields, fieldMap[i].name))
+            mask |= fieldMap[i].bit;
+    }
+    return mask;
+}
+
+static int
+packJobOutput(struct jData *jobData, int remain, char **replyBuf,
+              int version, const char *outputFields)
+{
+    struct jobOutputReply reply;
+    struct LSFHeader hdr;
+    struct submitReq *bill;
+    XDR xdrs;
+    char fullName[MAXPATHLEN];
+    char *buffer;
+    int len;
+    int i;
+
+    memset(&reply, 0, sizeof(reply));
+    bill = &jobData->shared->jobBill;
+    reply.jobId = jobData->jobId;
+    reply.fields = jobOutputFieldMask(outputFields);
+    reply.userName = jobData->userName;
+    reply.status = (jobData->jStatus & JOB_STAT_UNKWN)
+                   ? JOB_STAT_UNKWN
+                   : (jobData->jStatus & MASK_INT_JOB_STAT);
+    reply.queue = jobData->qPtr->queue ? jobData->qPtr->queue : "";
+    reply.fromHost = bill->fromHost ? bill->fromHost : "";
+    reply.submitTime = bill->submitTime;
+    reply.projectName = bill->projectName ? bill->projectName : "";
+    reply.cpuTime = jobData->cpuTime > 0
+                    ? jobData->cpuTime
+                    : jobData->runRusage.utime + jobData->runRusage.stime;
+    reply.mem = jobData->runRusage.mem;
+    reply.swap = jobData->runRusage.swap;
+    reply.npids = jobData->runRusage.npids;
+    reply.pidInfo = jobData->runRusage.pidInfo;
+    reply.startTime = jobData->startTime;
+    reply.endTime = jobData->endTime;
+    reply.exitStatus = jobData->exitStatus;
+
+    fullJobName_r(jobData, fullName);
+    reply.jobName = fullName;
+    if (reply.fields & JOB_OUTPUT_EXEC_HOST) {
+        reply.numExHosts = jobData->numHostPtr;
+        if (reply.numExHosts > 0) {
+            reply.exHosts = my_calloc(reply.numExHosts, sizeof(char *),
+                                      "packJobOutput");
+            for (i = 0; i < reply.numExHosts; i++)
+                reply.exHosts[i] = jobData->hPtr[i]->host;
+        }
+    }
+
+    len = 512 + (int)strlen(reply.userName)
+          + (int)strlen(reply.projectName);
+    if (reply.fields & JOB_OUTPUT_QUEUE)
+        len += (int)strlen(reply.queue) + 8;
+    if (reply.fields & JOB_OUTPUT_FROM_HOST)
+        len += (int)strlen(reply.fromHost) + 8;
+    if (reply.fields & JOB_OUTPUT_JOB_NAME)
+        len += (int)strlen(reply.jobName) + 8;
+    if (reply.fields & JOB_OUTPUT_EXEC_HOST) {
+        for (i = 0; i < reply.numExHosts; i++)
+            len += (int)strlen(reply.exHosts[i]) + 8;
+    }
+    if (reply.fields & JOB_OUTPUT_PIDS)
+        len += reply.npids * 8;
+
+    buffer = my_malloc(len, "packJobOutput");
+    xdrmem_create(&xdrs, buffer, len, XDR_ENCODE);
+    initLSFHeader_(&hdr);
+    hdr.reserved = remain;
+    hdr.version = version;
+    if (!xdr_encodeMsg(&xdrs, (char *)&reply, &hdr,
+                       xdr_jobOutputReply, 0, NULL)) {
+        xdr_destroy(&xdrs);
+        FREEUP(reply.exHosts);
+        FREEUP(buffer);
+        return -1;
+    }
+
+    len = XDR_GETPOS(&xdrs);
+    xdr_destroy(&xdrs);
+    FREEUP(reply.exHosts);
+    *replyBuf = buffer;
+    return len;
 }
 
 int
