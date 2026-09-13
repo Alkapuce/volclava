@@ -290,7 +290,8 @@ fmt_output_parse(const char *format, const struct fmt_field_def *fields,
             int rc;
 
             rc = fmt_set_error(errbuf, errbuf_len,
-                               "<%s> is not a valid field name.", token);
+                               "<%s> in the format string is not a valid field name.",
+                               token);
             free(token);
             fmt_output_free(request);
             return rc;
