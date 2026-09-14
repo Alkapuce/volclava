@@ -639,12 +639,16 @@ ls_gethostinfo_fields(char *resReq, int *numhosts, char **hostlist,
     hostInfoReply.shortLsInfo = &lsInfo;
     hostInfoReq.numHosts=0;
     hostInfoReq.outputFields = (char *)(outputFields ? outputFields : "");
-    cc = callLim_(LIM_GET_HOSTINFO,
-                  &hostInfoReq,
-                  xdr_decisionReq,
-                  &hostInfoReply,
-                  xdr_hostInfoReply,
-                  NULL, _USE_TCP_, NULL);
+    cc = callLimVersion_(LIM_GET_HOSTINFO,
+                         &hostInfoReq,
+                         xdr_decisionReq,
+                         &hostInfoReply,
+                         xdr_hostInfoReply,
+                         NULL, _USE_TCP_,
+                         outputFields && outputFields[0] != '\0'
+                         ? _VOLCLAVA_VERSION2_3_
+                         : _VOLCLAVA_VERSION2_2_,
+                         NULL);
 
     for (i=0; i < hostInfoReq.numPrefs; i++)
         free(hostInfoReq.preferredHosts[i]);

@@ -153,8 +153,11 @@ lsb_queueinfo_fields(char **queues, int *numQueues, char *hosts, char *users,
     xdrmem_create(&xdrs, request_buf, (u_int)requestSize, XDR_ENCODE);
     initLSFHeader_(&hdr); 
     hdr.opCode = mbdReqtype;
-    if (!xdr_encodeMsg(&xdrs, (char*) &queueInfoReq, &hdr, xdr_infoReq,
-		       0, NULL)) {
+    if (!xdr_encodeMsgVersion(&xdrs, (char*) &queueInfoReq, &hdr, xdr_infoReq,
+		              0, NULL,
+                              outputFields && outputFields[0] != '\0'
+                              ? _VOLCLAVA_VERSION2_3_
+                              : _VOLCLAVA_VERSION2_2_)) {
         lsberrno = LSBE_XDR;
         xdr_destroy(&xdrs);
         free (request_buf);

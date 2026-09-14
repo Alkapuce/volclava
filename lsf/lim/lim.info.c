@@ -59,6 +59,16 @@ limOutputFieldRequested(const char *fields, const char *name)
     return FALSE;
 }
 
+int
+limProjectHostInfoFlags(int flags, const char *fields)
+{
+    if (limOutputFieldRequested(fields, "SERVER")
+        || limOutputFieldRequested(fields, "RUN_WINDOWS"))
+        return flags;
+
+    return 0;
+}
+
 void
 pingReq(XDR *xdrs, struct sockaddr_in *from, struct LSFHeader *reqHdr)
 {
@@ -591,9 +601,8 @@ hostInfoReq(XDR *xdrs,
             if (!limOutputFieldRequested(hostInfoRequest.outputFields,
                                          "RUN_WINDOWS"))
                 infoPtr->windows = "-";
-            if (!limOutputFieldRequested(hostInfoRequest.outputFields,
-                                         "SERVER"))
-                infoPtr->flags = 0;
+            infoPtr->flags = limProjectHostInfoFlags(
+                infoPtr->flags, hostInfoRequest.outputFields);
         }
     }
     limReplyCode = LIME_NO_ERR;

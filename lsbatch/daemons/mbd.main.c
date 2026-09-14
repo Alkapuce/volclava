@@ -906,7 +906,7 @@ processClient(struct clientNode *client, int *needFree)
             break;
         default:
             errorBack(s, LSBE_PROTOCOL, &from);
-            if (reqHdr.version <= VOLCLAVA_VERSION)
+            if (reqHdr.version <= VOLCLAVA_PROTOCOL_VERSION)
                 ls_syslog(LOG_ERR, "\
 %s: Unknown request type %d from host %s",
                           fname, mbdReqtype, sockAdd2Str_(&from));
