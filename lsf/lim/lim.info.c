@@ -64,7 +64,7 @@ limProjectHostInfoFlags(int flags, const char *fields)
 {
     if (limOutputFieldRequested(fields, "SERVER")
         || limOutputFieldRequested(fields, "RUN_WINDOWS"))
-        return flags;
+        return flags & HINFO_SERVER;
 
     return 0;
 }
