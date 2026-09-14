@@ -37,6 +37,8 @@ struct decisionReq {
     char      *outputFields;
 };
 
+int limProjectHostInfoFlags(int, const char *);
+
 struct placeReply {
     int   numHosts;
     struct placeInfo *placeInfo;

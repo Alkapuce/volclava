@@ -154,8 +154,11 @@ lsb_hostinfo_ex_fields(char **hosts, int *numHosts, char *resReq, int options,
 
     initLSFHeader_(&hdr);
     hdr.opCode = mbdReqtype;
-    if (!xdr_encodeMsg(&xdrs, (char *)&hostInfoReq, &hdr, xdr_infoReq,
-		       0, NULL)) {
+    if (!xdr_encodeMsgVersion(&xdrs, (char *)&hostInfoReq, &hdr, xdr_infoReq,
+		              0, NULL,
+                              outputFields && outputFields[0] != '\0'
+                              ? _VOLCLAVA_VERSION2_3_
+                              : _VOLCLAVA_VERSION2_2_)) {
         xdr_destroy(&xdrs);
         free (request_buf);
 	lsberrno = LSBE_XDR;

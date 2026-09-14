@@ -252,8 +252,12 @@ lsb_openjobinfo_a_fields(LS_LONG_INT jobId, char *jobName, char *userName,
 
     initLSFHeader_(&hdr);
     hdr.opCode = mbdReqtype;
-    TIMEIT(1, (aa = xdr_encodeMsg(&xdrs, (char *) &jobInfoReq , &hdr,
-                           xdr_jobInfoReq, 0, NULL)), "xdr_encodeMsg");
+    TIMEIT(1, (aa = xdr_encodeMsgVersion(&xdrs,
+                           (char *) &jobInfoReq, &hdr,
+                           xdr_jobInfoReq, 0, NULL,
+                           outputFields && outputFields[0] != '\0'
+                           ? _VOLCLAVA_VERSION2_3_
+                           : _VOLCLAVA_VERSION2_2_)), "xdr_encodeMsgVersion");
     if (aa == FALSE) {
         lsberrno = LSBE_XDR;
         xdr_destroy(&xdrs);
