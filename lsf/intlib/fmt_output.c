@@ -403,6 +403,23 @@ fmt_output_fields_string(const struct fmt_request *request,
     return (int)needed;
 }
 
+int
+fmt_output_field_requested(const struct fmt_request *request,
+                           const char *field_name)
+{
+    int i;
+
+    if (!request || !field_name)
+        return 0;
+
+    for (i = 0; i < request->num_columns; i++) {
+        if (strcmp(request->columns[i].field->name, field_name) == 0)
+            return 1;
+    }
+
+    return 0;
+}
+
 void
 fmt_output_print_header(FILE *out, const struct fmt_request *request)
 {

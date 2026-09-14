@@ -62,7 +62,7 @@ int jsonflag = FALSE;
 
 static const struct fmt_field_def bjobs_fields[] = {
     {"JOBID", "ID", "JOBID", 7},
-    {"JOB_IDX", NULL, "JOB_IDX", 8},
+    {"JOB_IDX", "JOBINDEX", "JOB_IDX", 8},
     {"USER", NULL, "USER", 7},
     {"STAT", NULL, "STAT", 5},
     {"QUEUE", NULL, "QUEUE", 10},
@@ -496,6 +496,8 @@ do_options (int argc, char **argv, int *options, char **user, char **queue,
                 *projectName = optarg;
                 break;
             case 'W':
+                if (*format == O_FORMAT)
+                    usage(argv[0]);
                 Wflag = TRUE;
                 *format = WIDE_FORMAT;
                 break;
@@ -994,28 +996,46 @@ bjobs_make_pids(struct jobInfoEnt *job)
 }
 
 static int
-bjobs_prepare_fmt_record(struct jobInfoEnt *job, struct bjobs_fmt_record *record)
+bjobs_prepare_fmt_record(struct jobInfoEnt *job,
+                         const struct fmt_request *request,
+                         struct bjobs_fmt_record *record)
 {
     memset(record, 0, sizeof(*record));
     record->job = job;
     record->submitInfo = &job->submit;
-    record->status = get_status(job);
 
-    if (!job->user) {
-        strcpy(record->osUserName, "-");
-    } else if (getOSUserName_(job->user, record->osUserName,
-                              MAXLINELEN) != 0) {
-        strncpy(record->osUserName, job->user, MAXLINELEN);
-        record->osUserName[MAXLINELEN - 1] = '\0';
+    if (fmt_output_field_requested(request, "STAT"))
+        record->status = get_status(job);
+
+    if (fmt_output_field_requested(request, "USER")) {
+        if (!job->user) {
+            strcpy(record->osUserName, "-");
+        } else if (getOSUserName_(job->user, record->osUserName,
+                                  MAXLINELEN) != 0) {
+            strncpy(record->osUserName, job->user, MAXLINELEN);
+            record->osUserName[MAXLINELEN - 1] = '\0';
+        }
     }
 
-    strcpy(record->submitTime,
-           _i18n_ctime(ls_catd, CTIME_FORMAT_b_d_H_M, &job->submitTime));
+    if (fmt_output_field_requested(request, "SUBMIT_TIME")) {
+        strcpy(record->submitTime,
+               _i18n_ctime(ls_catd, CTIME_FORMAT_b_d_H_M,
+                           &job->submitTime));
+    }
 
-    record->execHost = bjobs_join_exec_hosts(job);
-    record->jobName = bjobs_make_job_name(job);
-    record->pids = bjobs_make_pids(job);
-    if (!record->execHost || !record->jobName || !record->pids)
+    if (fmt_output_field_requested(request, "EXEC_HOST"))
+        record->execHost = bjobs_join_exec_hosts(job);
+    if (fmt_output_field_requested(request, "JOB_NAME"))
+        record->jobName = bjobs_make_job_name(job);
+    if (fmt_output_field_requested(request, "PIDS"))
+        record->pids = bjobs_make_pids(job);
+
+    if ((fmt_output_field_requested(request, "EXEC_HOST")
+         && !record->execHost)
+        || (fmt_output_field_requested(request, "JOB_NAME")
+            && !record->jobName)
+        || (fmt_output_field_requested(request, "PIDS")
+            && !record->pids))
         return -1;
     return 0;
 }
@@ -1138,7 +1158,7 @@ displayO(struct jobInfoEnt *job, struct jobInfoHead *jInfoH,
         fmt_output_print_header(stdout, request);
     }
 
-    if (bjobs_prepare_fmt_record(job, &record) < 0) {
+    if (bjobs_prepare_fmt_record(job, request, &record) < 0) {
         bjobs_free_fmt_record(&record);
         lsberrno = LSBE_NO_MEM;
         lsb_perror("bjobs_prepare_fmt_record");
@@ -1169,7 +1189,7 @@ cJSON
     int i, j;
     cJSON *jobItem = cJSON_CreateObject();
 
-    if (bjobs_prepare_fmt_record(job, &record) < 0) {
+    if (bjobs_prepare_fmt_record(job, request, &record) < 0) {
         bjobs_free_fmt_record(&record);
         cJSON_Delete(jobItem);
         lsberrno = LSBE_NO_MEM;
