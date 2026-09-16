@@ -1133,6 +1133,7 @@ packJobInfo(struct jData * jobData,
     jobInfoReply.endTime = jobData->endTime;
     jobInfoReply.cpuTime = jobData->cpuTime;
     jobInfoReply.numToHosts = jobData->numHostPtr;
+    jobInfoReply.toHosts = NULL;
     jobInfoReply.chargedSAAP = (jobData->sa ? jobData->sa->path : "");
     jobInfoReply.mergedResReq = (jobData->shared->mergedResReqEnt ? GET_JOB_MERGED_RES_REQ_STR(jobData): "");
     jobInfoReply.effeResReq = (jobData->effeResReqEnt ? GET_JOB_EFFE_RES_REQ_STR(jobData): "");
