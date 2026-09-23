@@ -74,6 +74,8 @@ typedef enum {
     BATCH_JOB_SUB_PACK    = 41,
     BATCH_SHOWCONF       = 42,
     BATCH_RSRC_LIMIT_INFO  = 43,
+    BATCH_JOB_OUTPUT     = 43, /* Experimental v23 only; v22 is resource limits. */
+    BATCH_OUTPUT         = 44,
     BATCH_SET_JOB_ATTR   = 90,
     READY_FOR_OP         = 1023,
     PREPARE_FOR_OP       = 1024,
@@ -81,6 +83,16 @@ typedef enum {
     QMBD_CTRL            = 2001,  /* Internal qmbd control event. */
     QMBD_SUBMIT          = 2002   /* Internal qmbd submit replay event. */
 } mbdReqType;
+
+/* BATCH_OUTPUT uses reserved as its object discriminator. */
+#define OUTPUT_JOB   1
+#define OUTPUT_HOST  2
+#define OUTPUT_QUEUE 3
+#define OUTPUT_JOB_GROUP 4 /* Group records retain the legacy record shape. */
+#define IS_LEGACY_JOB_OUTPUT(h) ((h)->opCode == BATCH_JOB_OUTPUT && \
+    (h)->version == _VOLCLAVA_VERSION2_3_)
+#define IS_JOB_OUTPUT(h) (IS_LEGACY_JOB_OUTPUT(h) || \
+    ((h)->opCode == BATCH_OUTPUT && (h)->reserved == OUTPUT_JOB))
 
 #define SUB_RLIMIT_UNIT_IS_KB 0x80000000
 
@@ -210,6 +222,7 @@ struct jobInfoReq {
     char   *jobName;
     char   *queue;
     char   *host;          
+    char   *outputFields;
 };
 
 struct jobInfoReply {
@@ -255,11 +268,52 @@ struct jobInfoReply {
     int       numLimitDetail;
 };
 
+#define JOB_OUTPUT_USER        0x0001
+#define JOB_OUTPUT_STAT        0x0002
+#define JOB_OUTPUT_QUEUE       0x0004
+#define JOB_OUTPUT_FROM_HOST   0x0008
+#define JOB_OUTPUT_EXEC_HOST   0x0010
+#define JOB_OUTPUT_JOB_NAME    0x0020
+#define JOB_OUTPUT_SUBMIT_TIME 0x0040
+#define JOB_OUTPUT_PROJ_NAME   0x0080
+#define JOB_OUTPUT_CPU_USED    0x0100
+#define JOB_OUTPUT_MEM         0x0200
+#define JOB_OUTPUT_SWAP        0x0400
+#define JOB_OUTPUT_PIDS        0x0800
+#define JOB_OUTPUT_START_TIME  0x1000
+#define JOB_OUTPUT_FINISH_TIME 0x2000
+#define JOB_OUTPUT_EXIT_CODE   0x4000
+#define JOB_OUTPUT_REASONS     0x8000 /* v25; needed to distinguish ZOMBI */
+
+struct jobOutputReply {
+    LS_LONG_INT jobId;
+    unsigned int fields;
+    char *userName;
+    int status;
+    int reasons;
+    char *queue;
+    char *fromHost;
+    int numExHosts;
+    char **exHosts;
+    char *jobName;
+    time_t submitTime;
+    char *projectName;
+    float cpuTime;
+    int mem;
+    int swap;
+    int npids;
+    struct pidInfo *pidInfo;
+    time_t startTime;
+    time_t endTime;
+    int exitStatus;
+};
+
 struct infoReq {
     int options;
     int numNames;
     char **names;
     char  *resReq;
+    char  *outputFields;
 };
 
 
@@ -270,6 +324,7 @@ struct userInfoReply {
 };
 
 struct queueInfoReply {
+    unsigned long long outputMask;
     int    badQueue;
     int    numQueues;
     int    nIdx; 
@@ -277,6 +332,7 @@ struct queueInfoReply {
 };
 
 struct hostDataReply {
+    unsigned long long outputMask;
     int  badHost;
     int  numHosts;
     int  nIdx; 
