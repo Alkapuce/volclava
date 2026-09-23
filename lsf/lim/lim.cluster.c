@@ -150,6 +150,7 @@ processMsg(int chanfd)
     switch(hdr.opCode) {
 
         case LIM_LOAD_REQ:
+        case LIM_HOST_OUTPUT:
         case LIM_GET_HOSTINFO:
         case LIM_PLACEMENT:
         case LIM_GET_RESOUINFO:
@@ -242,6 +243,7 @@ Reply1:
             io_block_(chanSock_(chfd));
 
             switch(hdr->opCode) {
+                case LIM_HOST_OUTPUT:
                 case LIM_GET_HOSTINFO:
                     hostInfoReq(xdrs,
                                 clientMap[chfd]->fromHost,

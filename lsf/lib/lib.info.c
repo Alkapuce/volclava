@@ -554,6 +554,14 @@ struct hostInfo *
 ls_gethostinfo(char *resReq, int *numhosts, char **hostlist, int listsize,
                int options)
 {
+    return ls_gethostinfo_fields(resReq, numhosts, hostlist, listsize,
+                                 options, NULL);
+}
+
+struct hostInfo *
+ls_gethostinfo_fields(char *resReq, int *numhosts, char **hostlist,
+                      int listsize, int options, const char *outputFields)
+{
     static char fname[] = "ls_gethostinfo";
     struct decisionReq hostInfoReq;
     static struct hostInfoReply hostInfoReply;
@@ -630,12 +638,38 @@ ls_gethostinfo(char *resReq, int *numhosts, char **hostlist, int listsize,
 
     hostInfoReply.shortLsInfo = &lsInfo;
     hostInfoReq.numHosts=0;
-    cc = callLim_(LIM_GET_HOSTINFO,
-                  &hostInfoReq,
-                  xdr_decisionReq,
-                  &hostInfoReply,
-                  xdr_hostInfoReply,
-                  NULL, _USE_TCP_, NULL);
+    hostInfoReq.outputFields = (char *)(outputFields ? outputFields : "");
+    {
+        struct LSFHeader replyHeader;
+        static struct shortLsInfo outputInfo;
+        static struct hostInfoReply outputReply;
+        int custom = outputFields && outputFields[0];
+        int capability = LIM_OUTPUT_CAPABILITY;
+        memset(&replyHeader, 0, sizeof(replyHeader));
+        if (custom) {
+            /* The old TCP dispatcher silently drops unknown opcodes. */
+            cc = callLimVersion_(LIM_GET_INFO, &capability, xdr_int, NULL, NULL,
+                                 NULL, _USE_TCP_, _VOLCLAVA_VERSION2_4_, &replyHeader);
+            if (cc < 0) goto hostOutputDone;
+            custom = replyHeader.version >= _VOLCLAVA_VERSION2_4_;
+        }
+        if (custom) {
+            outputReply.shortLsInfo = &outputInfo;
+            xdr_lsffree(xdr_hostOutputInfoReply, (char *)&outputReply, &replyHeader);
+            memset(&outputReply, 0, sizeof(outputReply));
+            outputReply.shortLsInfo = &outputInfo;
+            cc = callLimVersion_(LIM_HOST_OUTPUT, &hostInfoReq, xdr_decisionReq,
+                                 &outputReply, xdr_hostOutputInfoReply,
+                                 NULL, _USE_TCP_, _VOLCLAVA_VERSION2_4_, &replyHeader);
+            if (cc >= 0) hostInfoReply = outputReply;
+            else xdr_lsffree(xdr_hostOutputInfoReply, (char *)&outputReply, &replyHeader);
+        } else {
+            cc = callLimVersion_(LIM_GET_HOSTINFO, &hostInfoReq, xdr_decisionReq,
+                                 &hostInfoReply, xdr_hostInfoReply,
+                                 NULL, _USE_TCP_, _VOLCLAVA_VERSION2_2_, NULL);
+        }
+    }
+hostOutputDone:
 
     for (i=0; i < hostInfoReq.numPrefs; i++)
         free(hostInfoReq.preferredHosts[i]);
@@ -800,4 +834,3 @@ ls_sharedresourceinfo(char **resources, int *numResources, char *hostName, int o
     return (resourceInfoReply.resources);
 
 }
-
